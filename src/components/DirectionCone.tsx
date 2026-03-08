@@ -2,19 +2,12 @@ import React from "react";
 import { View, StyleSheet } from "react-native";
 
 type Props = {
-  heading: number;
+  heading?: number;
 };
 
-export default function DirectionCone({ heading }: Props) {
+export default function DirectionCone({ heading: _heading }: Props) {
   return (
-    <View
-      style={[
-        styles.wrapper,
-        {
-          transform: [{ rotate: `${heading}deg` }],
-        },
-      ]}
-    >
+    <View style={styles.wrapper}>
       <View style={styles.cone} />
     </View>
   );

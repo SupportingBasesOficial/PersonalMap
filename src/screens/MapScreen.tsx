@@ -110,13 +110,22 @@ export default function MapScreen() {
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
                                 {userCoordinate && showDirectionCone ? (
-                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <DirectionCone heading={heading} />
+                                        <Marker
+                                                coordinate={userCoordinate}
+                                                anchor={{ x: 0.5, y: 0.5 }}
+                                                flat
+                                                rotation={heading}
+                                        >
+                                                <DirectionCone />
                                         </Marker>
                                 ) : null}
 
                                 {userCoordinate ? (
-                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
+                                        <Marker
+                                                coordinate={userCoordinate}
+                                                anchor={{ x: 0.5, y: 0.5 }}
+                                                tracksViewChanges={false}
+                                        >
                                                 <View style={styles.markerContainer}>
                                                         {movementMode === "idle" ? (
                                                                 <View style={styles.idleDot} />
