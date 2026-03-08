@@ -154,10 +154,11 @@ const styles = StyleSheet.create({
                 elevation: 6,
         },
         markerWrapper: {
-                width: 40,
-                height: 40,
+                width: 60,
+                height: 60,
                 alignItems: "center",
                 justifyContent: "center",
+                overflow: "visible",
         },
         userDotOuter: {
                 width: 20,
