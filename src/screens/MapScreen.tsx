@@ -84,20 +84,20 @@ export default function MapScreen() {
                         mapRef.current.animateToRegion(userRegion, 600);
         };
 
-        const userCoordinate = userRegion
+        const userLocation = userRegion
                 ? { latitude: userRegion.latitude, longitude: userRegion.longitude }
                 : null;
 
         return (
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-                                {userCoordinate ? (
-                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <View style={styles.userMarkerWrapper}>
+                                {userLocation ? (
+                                        <Marker coordinate={userLocation} anchor={{ x: 0.5, y: 0.5 }}>
+                                                <View style={styles.markerContainer}>
                                                         {speedKmh === 0 && <DirectionCone heading={heading} />}
 
-                                                        <View style={styles.userMarkerOuter}>
-                                                                <View style={styles.userMarkerInner} />
+                                                        <View style={styles.userDotOuter}>
+                                                                <View style={styles.userDotInner} />
                                                         </View>
                                                 </View>
                                         </Marker>
@@ -136,24 +136,23 @@ const styles = StyleSheet.create({
                 shadowRadius: 6,
                 elevation: 6,
         },
-        userMarkerWrapper: {
+        markerContainer: {
                 width: 60,
                 height: 60,
                 alignItems: "center",
                 justifyContent: "center",
         },
-        userMarkerOuter: {
-                position: "absolute",
-                width: 22,
-                height: 22,
-                borderRadius: 11,
-                backgroundColor: "#FFFFFF",
+        userDotOuter: {
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                backgroundColor: "#ffffff",
+                borderWidth: 3,
+                borderColor: "#2563EB",
                 alignItems: "center",
                 justifyContent: "center",
-                borderWidth: 2,
-                borderColor: "#1D4ED8",
         },
-        userMarkerInner: {
+        userDotInner: {
                 width: 10,
                 height: 10,
                 borderRadius: 5,
