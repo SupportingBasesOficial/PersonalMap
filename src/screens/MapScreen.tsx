@@ -20,10 +20,8 @@ export default function MapScreen() {
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
         const [speedKmh, setSpeedKmh] = useState(0);
         const [heading, setHeading] = useState(0);
-        const [showDirectionCone, setShowDirectionCone] = useState(true);
         const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
-        const speedRef = useRef(0);
 
         useEffect(() => {
                 Magnetometer.setUpdateInterval(100);
@@ -37,15 +35,6 @@ export default function MapScreen() {
 
                 return () => subscription.remove();
         }, []);
-
-        useEffect(() => {
-                // Hysteresis prevents cone blinking near the threshold.
-                if (showDirectionCone && speedKmh > 6) {
-                        setShowDirectionCone(false);
-                } else if (!showDirectionCone && speedKmh < 4) {
-                        setShowDirectionCone(true);
-                }
-        }, [showDirectionCone, speedKmh]);
 
         useEffect(() => {
                 let locationSubscription: Location.LocationSubscription | null = null;
@@ -79,7 +68,6 @@ export default function MapScreen() {
                                         kmh = 0;
                                 }
 
-                                speedRef.current = kmh;
                                 setSpeedKmh(kmh);
                                 setMovementMode(getMovementMode(kmh));
                         });
@@ -107,15 +95,12 @@ export default function MapScreen() {
         return (
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-                                {userCoordinate && showDirectionCone ? (
-                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <DirectionCone heading={heading} />
-                                        </Marker>
-                                ) : null}
-
                                 {userCoordinate ? (
                                         <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <View style={styles.markerContainer}>
+                                                <View style={styles.userMarker}>
+                                                        {speedKmh === 0 ? <DirectionCone heading={heading} /> : null}
+
+                                                        <View style={styles.markerContainer}>
                                                         {movementMode === "idle" ? (
                                                                 <View style={styles.idleDot} />
                                                         ) : (
@@ -133,6 +118,7 @@ export default function MapScreen() {
                                                                         color="#FFFFFF"
                                                                 />
                                                         )}
+                                                        </View>
                                                 </View>
                                         </Marker>
                                 ) : null}
@@ -171,6 +157,7 @@ const styles = StyleSheet.create({
                 elevation: 6,
         },
         markerContainer: {
+                position: "absolute",
                 width: 30,
                 height: 30,
                 borderRadius: 15,
@@ -179,6 +166,12 @@ const styles = StyleSheet.create({
                 justifyContent: "center",
                 borderWidth: 2,
                 borderColor: "#FFFFFF",
+        },
+        userMarker: {
+                width: 80,
+                height: 80,
+                alignItems: "center",
+                justifyContent: "center",
         },
         idleDot: {
                 width: 12,
