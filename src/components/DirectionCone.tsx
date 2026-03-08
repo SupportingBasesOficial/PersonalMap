@@ -2,41 +2,42 @@ import React from "react";
 import { View, StyleSheet } from "react-native";
 
 type Props = {
-  heading: number;
+      heading: number;
 };
 
 export default function DirectionCone({ heading }: Props) {
-  return (
-    <View
-      style={[
-        styles.wrapper,
-        {
-          transform: [{ rotate: `${heading}deg` }],
-        },
-      ]}
-    >
-      <View style={styles.cone} />
-    </View>
-  );
+      return (
+            <View
+                  pointerEvents="none"
+                        style={[
+                                    styles.wrapper,
+                                            {
+                                                          transform: [{ rotate: `${heading}deg` }],
+                                            },
+                        ]}
+                            >
+                                  <View style={styles.cone} />
+                                      </View>
+      );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    width: 80,
-    height: 80,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cone: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 14,
-    borderRightWidth: 14,
-    borderBottomWidth: 32,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderBottomColor: "rgba(0,150,255,0.45)",
-    position: "absolute",
-    top: 2,
-  },
+      wrapper: {
+            position: "absolute",
+                width: 60,
+                    height: 60,
+                        alignItems: "center",
+                            justifyContent: "flex-start",
+      },
+        cone: {
+                marginTop: 2,
+                    width: 0,
+                        height: 0,
+                            borderLeftWidth: 12,
+                                borderRightWidth: 12,
+                                    borderBottomWidth: 24,
+                                        borderLeftColor: "transparent",
+                                            borderRightColor: "transparent",
+                                                borderBottomColor: "rgba(37,99,235,0.28)",
+        },
 });
