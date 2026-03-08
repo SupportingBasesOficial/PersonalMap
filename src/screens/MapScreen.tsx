@@ -7,20 +7,11 @@ import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 import DirectionCone from "../components/DirectionCone";
 
-function getMovementMode(speed: number) {
-        if (speed < 5) return "idle";
-        if (speed < 10) return "run";
-        if (speed < 25) return "bike";
-        if (speed < 150) return "car";
-        return "plane";
-}
-
 export default function MapScreen() {
         const [userRegion, setUserRegion] = useState<Region | null>(null);
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
         const [speedKmh, setSpeedKmh] = useState(0);
         const [heading, setHeading] = useState(0);
-        const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
 
         useEffect(() => {
@@ -69,7 +60,6 @@ export default function MapScreen() {
                                 }
 
                                 setSpeedKmh(kmh);
-                                setMovementMode(getMovementMode(kmh));
                         });
                 })();
 
@@ -97,27 +87,11 @@ export default function MapScreen() {
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
                                 {userCoordinate ? (
                                         <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <View style={styles.userMarker}>
+                                                <View style={styles.userMarkerWrapper}>
                                                         {speedKmh === 0 ? <DirectionCone heading={heading} /> : null}
 
-                                                        <View style={styles.markerContainer}>
-                                                        {movementMode === "idle" ? (
-                                                                <View style={styles.idleDot} />
-                                                        ) : (
-                                                                <MaterialIcons
-                                                                        name={
-                                                                                movementMode === "run"
-                                                                                        ? "directions-run"
-                                                                                        : movementMode === "bike"
-                                                                                                ? "directions-bike"
-                                                                                                : movementMode === "car"
-                                                                                                        ? "directions-car"
-                                                                                                        : "flight"
-                                                                        }
-                                                                        size={20}
-                                                                        color="#FFFFFF"
-                                                                />
-                                                        )}
+                                                        <View style={styles.userMarkerOuter}>
+                                                                <View style={styles.userMarkerInner} />
                                                         </View>
                                                 </View>
                                         </Marker>
@@ -156,27 +130,27 @@ const styles = StyleSheet.create({
                 shadowRadius: 6,
                 elevation: 6,
         },
-        markerContainer: {
+        userMarkerWrapper: {
+                width: 60,
+                height: 60,
+                alignItems: "center",
+                justifyContent: "center",
+        },
+        userMarkerOuter: {
                 position: "absolute",
-                width: 30,
-                height: 30,
-                borderRadius: 15,
-                backgroundColor: "rgba(27,67,50,0.9)",
+                width: 22,
+                height: 22,
+                borderRadius: 11,
+                backgroundColor: "#FFFFFF",
                 alignItems: "center",
                 justifyContent: "center",
                 borderWidth: 2,
-                borderColor: "#FFFFFF",
+                borderColor: "#1D4ED8",
         },
-        userMarker: {
-                width: 80,
-                height: 80,
-                alignItems: "center",
-                justifyContent: "center",
-        },
-        idleDot: {
-                width: 12,
-                height: 12,
-                borderRadius: 6,
-                backgroundColor: "#3B82F6",
+        userMarkerInner: {
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: "#2563EB",
         },
 });
