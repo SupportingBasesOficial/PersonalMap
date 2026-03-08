@@ -5,6 +5,7 @@ import * as Location from "expo-location";
 import { Magnetometer } from "expo-sensors";
 import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
+import DirectionCone from "../components/DirectionCone";
 
 function getMovementMode(speed: number) {
         if (speed < 5) return "idle";
@@ -90,6 +91,8 @@ export default function MapScreen() {
                                 {userRegion ? (
                                         <Marker coordinate={userRegion} anchor={{ x: 0.5, y: 0.5 }}>
                                                 <View style={styles.markerContainer}>
+                                                        {speedKmh < 5 && <DirectionCone heading={heading} />}
+
                                                         {movementMode === "idle" ? (
                                                                 <View style={styles.idleDot} />
                                                         ) : (
