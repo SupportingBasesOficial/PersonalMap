@@ -1,19 +1,68 @@
 import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
-import MapView, { Marker, Region } from "react-native-maps";
+import MapView, { Marker, Region, LatLng } from "react-native-maps";
 import * as Location from "expo-location";
 import { Magnetometer, Accelerometer } from "expo-sensors";
 import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 import DirectionCone from "../components/DirectionCone";
 
+const MIN_MOVING_SPEED_KMH = 3;
+const REGION_DELTA = { latitudeDelta: 0.01, longitudeDelta: 0.01 };
+
+function normalizeHeading(value: number) {
+        const normalized = value % 360;
+        return normalized < 0 ? normalized + 360 : normalized;
+}
+
+function smoothHeading(previous: number | null, next: number, alpha: number) {
+        if (previous === null) {
+                return normalizeHeading(next);
+        }
+
+        const delta = ((next - previous + 540) % 360) - 180;
+        return normalizeHeading(previous + delta * alpha);
+}
+
+function getAcceptedAccuracyMeters(speedKmh: number) {
+        if (speedKmh === 0) {
+                return 20;
+        }
+
+        if (speedKmh < 20) {
+                return 30;
+        }
+
+        if (speedKmh < 60) {
+                return 45;
+        }
+
+        return 65;
+}
+
+function smoothCoordinate(previous: LatLng | null, next: LatLng, alpha: number): LatLng {
+        if (!previous) {
+                return next;
+        }
+
+        return {
+                latitude: previous.latitude + (next.latitude - previous.latitude) * alpha,
+                longitude: previous.longitude + (next.longitude - previous.longitude) * alpha,
+        };
+}
+
 export default function MapScreen() {
-        const [userRegion, setUserRegion] = useState<Region | null>(null);
+        const [userCoordinate, setUserCoordinate] = useState<LatLng | null>(null);
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
         const [speedKmh, setSpeedKmh] = useState(0);
-        const [heading, setHeading] = useState(0);
+        const [isFollowingUser, setIsFollowingUser] = useState(true);
+        const [compassHeading, setCompassHeading] = useState(0);
+        const [courseHeading, setCourseHeading] = useState<number | null>(null);
+        const [displayHeading, setDisplayHeading] = useState(0);
         const mapRef = useRef<MapView | null>(null);
         const accelData = useRef({ x: 0, y: 0, z: 0 });
+        const smoothedCoordinateRef = useRef<LatLng | null>(null);
+        const smoothedHeadingRef = useRef<number | null>(null);
 
         useEffect(() => {
                 Accelerometer.setUpdateInterval(100);
@@ -42,7 +91,7 @@ export default function MapScreen() {
 
                         if (heading < 0) heading += 360;
 
-                        setHeading(heading);
+                        setCompassHeading(heading);
                 });
 
                 return () => sub.remove();
@@ -64,23 +113,46 @@ export default function MapScreen() {
                                 timeInterval: 1000,
                                 distanceInterval: 1,
                         }, (location) => {
-                                const nextRegion: Region = {
-                                        latitude: location.coords.latitude,
-                                        longitude: location.coords.longitude,
-                                        latitudeDelta: 0.01,
-                                        longitudeDelta: 0.01,
-                                };
+                                const latitude = location.coords.latitude;
+                                const longitude = location.coords.longitude;
 
-                                setUserRegion(nextRegion);
-                                setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
+                                const isValidLatitude = Number.isFinite(latitude) && Math.abs(latitude) <= 90;
+                                const isValidLongitude = Number.isFinite(longitude) && Math.abs(longitude) <= 180;
                                 const speedMps = location.coords.speed ?? 0;
                                 let kmh = speedMps * 3.6;
 
-                                // treat very low speed as stopped
-                                if (kmh < 3) {
+                                // Treat very low speed as stopped to avoid noisy speed/heading flips.
+                                if (kmh < MIN_MOVING_SPEED_KMH) {
                                         kmh = 0;
                                 }
 
+                                const accuracy = location.coords.accuracy ?? Infinity;
+                                const maxAccuracyMeters = getAcceptedAccuracyMeters(kmh);
+                                const isAcceptedAccuracy = Number.isFinite(accuracy) && accuracy <= maxAccuracyMeters;
+
+                                if (!isValidLatitude || !isValidLongitude || !isAcceptedAccuracy) {
+                                        return;
+                                }
+
+                                const rawCoordinate: LatLng = { latitude, longitude };
+
+                                const smoothingAlpha = kmh === 0 ? 0.2 : 0.35;
+                                const nextCoordinate = smoothCoordinate(smoothedCoordinateRef.current, rawCoordinate, smoothingAlpha);
+                                smoothedCoordinateRef.current = nextCoordinate;
+
+                                const gpsHeading = location.coords.heading;
+                                const hasGpsHeading = Number.isFinite(gpsHeading) && gpsHeading !== null && gpsHeading >= 0;
+
+                                if (kmh > 0 && hasGpsHeading) {
+                                        setCourseHeading(normalizeHeading(gpsHeading));
+                                } else if (kmh === 0) {
+                                        setCourseHeading(null);
+                                }
+
+                                const nextRegion: Region = { ...nextCoordinate, ...REGION_DELTA };
+
+                                setUserCoordinate(nextCoordinate);
+                                setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
                                 setSpeedKmh(kmh);
                         });
                 })();
@@ -92,26 +164,51 @@ export default function MapScreen() {
                 };
         }, []);
 
+        useEffect(() => {
+                if (!userCoordinate || !mapRef.current || !isFollowingUser) {
+                        return;
+                }
+
+                mapRef.current.animateCamera({ center: userCoordinate }, { duration: 450 });
+        }, [userCoordinate, isFollowingUser]);
+
+        const isStationary = speedKmh < MIN_MOVING_SPEED_KMH;
+
+        useEffect(() => {
+                const sourceHeading = isStationary || courseHeading === null ? compassHeading : courseHeading;
+                const alpha = isStationary ? 0.14 : 0.32;
+                const nextHeading = smoothHeading(smoothedHeadingRef.current, sourceHeading, alpha);
+
+                smoothedHeadingRef.current = nextHeading;
+                setDisplayHeading(nextHeading);
+        }, [compassHeading, courseHeading, isStationary]);
+
         if (!initialRegion) return <View style={styles.container} />;
 
         const handleRecenterPress = () => {
-                        if (!userRegion || !mapRef.current) return;
+                        if (!userCoordinate || !mapRef.current) return;
 
-                        mapRef.current.animateToRegion(userRegion, 600);
+                        setIsFollowingUser(true);
+                        mapRef.current.animateToRegion({ ...userCoordinate, ...REGION_DELTA }, 600);
         };
-
-        const userLocation = userRegion
-                ? { latitude: userRegion.latitude, longitude: userRegion.longitude }
-                : null;
-        const isStationary = speedKmh < 3;
 
         return (
                 <View style={styles.container}>
-                        <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-                                {userLocation ? (
-                                        <Marker coordinate={userLocation} anchor={{ x: 0.5, y: 0.5 }}>
+                        <MapView
+                                ref={mapRef}
+                                style={styles.map}
+                                initialRegion={initialRegion}
+                                onPanDrag={() => setIsFollowingUser(false)}
+                        >
+                                {userCoordinate ? (
+                                        <Marker
+                                                coordinate={userCoordinate}
+                                                anchor={{ x: 0.5, y: 0.5 }}
+                                                centerOffset={{ x: 0, y: 0 }}
+                                                tracksViewChanges={false}
+                                        >
                                                 <View style={styles.markerWrapper}>
-                                                        {isStationary && <DirectionCone heading={heading} />}
+                                                        <DirectionCone heading={displayHeading} />
 
                                                         <View style={styles.userDotOuter}>
                                                                 <View style={styles.userDotInner} />
@@ -123,8 +220,11 @@ export default function MapScreen() {
 
                         <Speedometer speedKmh={speedKmh} />
 
-                        <Pressable style={styles.recenterButton} onPress={handleRecenterPress}>
-                                <MaterialIcons name="my-location" size={24} color="#1B4332" />
+                        <Pressable
+                                style={[styles.recenterButton, isFollowingUser ? styles.recenterButtonActive : null]}
+                                onPress={handleRecenterPress}
+                        >
+                                <MaterialIcons name="my-location" size={24} color={isFollowingUser ? "#FFFFFF" : "#1B4332"} />
                         </Pressable>
                 </View>
         );
@@ -153,9 +253,12 @@ const styles = StyleSheet.create({
                 shadowRadius: 6,
                 elevation: 6,
         },
+        recenterButtonActive: {
+                backgroundColor: "#1B4332",
+        },
         markerWrapper: {
-                width: 60,
-                height: 60,
+                width: 40,
+                height: 40,
                 alignItems: "center",
                 justifyContent: "center",
                 overflow: "visible",
