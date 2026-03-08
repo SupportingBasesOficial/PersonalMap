@@ -63,11 +63,11 @@ export default function MapScreen() {
                                 {userRegion ? <Marker coordinate={userRegion} /> : null}
                         </MapView>
 
+                        <Speedometer speedKmh={speedKmh} />
+
                         <Pressable style={styles.recenterButton} onPress={handleRecenterPress}>
                                 <MaterialIcons name="my-location" size={24} color="#1B4332" />
                         </Pressable>
-
-                        <Speedometer speedKmh={speedKmh} />
                 </View>
         );
 }
