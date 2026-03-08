@@ -76,6 +76,7 @@ export default function MapScreen() {
                                 const speedMps = location.coords.speed ?? 0;
                                 let kmh = speedMps * 3.6;
 
+                                // treat very low speed as stopped
                                 if (kmh < 3) {
                                         kmh = 0;
                                 }
@@ -109,7 +110,7 @@ export default function MapScreen() {
                                 {userLocation ? (
                                         <Marker coordinate={userLocation} anchor={{ x: 0.5, y: 0.5 }}>
                                                 <View style={styles.markerContainer}>
-                                                        {speedKmh === 0 && <DirectionCone heading={heading} />}
+                                                        {speedKmh <= 2 && <DirectionCone heading={heading} />}
 
                                                         <View style={styles.userDotOuter}>
                                                                 <View style={styles.userDotInner} />
