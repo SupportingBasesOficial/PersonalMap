@@ -207,8 +207,14 @@ export default function MapScreen() {
                         return;
                 }
 
-                mapRef.current.animateCamera({ center: userCoordinate }, { duration: 450 });
-        }, [userCoordinate, isFollowingUser]);
+                mapRef.current.animateCamera(
+                        {
+                                center: userCoordinate,
+                                heading: displayHeading,
+                        },
+                        { duration: 450 }
+                );
+        }, [userCoordinate, displayHeading, isFollowingUser]);
 
         const isStationary = speedKmh < MIN_MOVING_SPEED_KMH;
 
@@ -241,7 +247,6 @@ export default function MapScreen() {
                                                 coordinate={userCoordinate}
                                                 anchor={{ x: 0.5, y: 0.5 }}
                                                 centerOffset={{ x: 0, y: 0 }}
-                                                tracksViewChanges={false}
                                         >
                                                 <View style={styles.markerWrapper}>
                                                         <DirectionCone heading={displayHeading} />
