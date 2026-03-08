@@ -15,13 +15,19 @@ export default function MapScreen() {
         const mapRef = useRef<MapView | null>(null);
 
         useEffect(() => {
+                let lastHeading = 0;
+
                 Magnetometer.setUpdateInterval(100);
 
                 const subscription = Magnetometer.addListener((data) => {
-                        const angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
-                        const headingValue = angle >= 0 ? angle : angle + 360;
+                        let angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
+                        let nextHeading = (angle + 360) % 360;
 
-                        setHeading(headingValue);
+                        // simple smoothing
+                        const smoothed = lastHeading * 0.7 + nextHeading * 0.3;
+                        lastHeading = smoothed;
+
+                        setHeading(smoothed);
                 });
 
                 return () => subscription.remove();
