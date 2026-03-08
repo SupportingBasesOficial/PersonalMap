@@ -36,8 +36,9 @@ export default function MapScreen() {
 
                                 setUserRegion(nextRegion);
                                 setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
-                                // Location API returns meters/second; convert to km/h.
-                                setSpeedKmh(Math.max(0, (location.coords.speed ?? 0) * 3.6));
+                                const speedMps = location.coords.speed ?? 0;
+                                const kmh = speedMps * 3.6;
+                                setSpeedKmh(kmh);
                         });
                 })();
 
