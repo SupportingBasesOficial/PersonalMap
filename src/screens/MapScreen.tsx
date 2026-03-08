@@ -13,13 +13,13 @@ export default function MapScreen() {
         const [speedKmh, setSpeedKmh] = useState(0);
         const [heading, setHeading] = useState(0);
         const mapRef = useRef<MapView | null>(null);
-        const accel = useRef({ x: 0, y: 0, z: 0 });
+        const accelData = useRef({ x: 0, y: 0, z: 0 });
 
         useEffect(() => {
                 Accelerometer.setUpdateInterval(100);
 
                 const sub = Accelerometer.addListener((data) => {
-                        accel.current = data;
+                        accelData.current = data;
                 });
 
                 return () => sub.remove();
@@ -30,7 +30,7 @@ export default function MapScreen() {
 
                 const sub = Magnetometer.addListener((data) => {
                         const { x, y } = data;
-                        const { x: ax, y: ay, z: az } = accel.current;
+                        const { x: ax, y: ay, z: az } = accelData.current;
 
                         const pitch = Math.atan2(-ax, Math.sqrt(ay * ay + az * az));
                         const roll = Math.atan2(ay, az);
@@ -40,9 +40,7 @@ export default function MapScreen() {
 
                         let heading = Math.atan2(yh, xh) * (180 / Math.PI);
 
-                        if (heading < 0) {
-                                heading += 360;
-                        }
+                        if (heading < 0) heading += 360;
 
                         setHeading(heading);
                 });
