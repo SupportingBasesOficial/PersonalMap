@@ -3,10 +3,12 @@ import { View, StyleSheet, Pressable } from "react-native";
 import MapView, { Marker, Region } from "react-native-maps";
 import * as Location from "expo-location";
 import { MaterialIcons } from "@expo/vector-icons";
+import Speedometer from "../components/Speedometer";
 
 export default function MapScreen() {
         const [userRegion, setUserRegion] = useState<Region | null>(null);
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
+        const [speedKmh, setSpeedKmh] = useState(0);
         const mapRef = useRef<MapView | null>(null);
 
         useEffect(() => {
@@ -34,6 +36,8 @@ export default function MapScreen() {
 
                                 setUserRegion(nextRegion);
                                 setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
+                                // Location API returns meters/second; convert to km/h.
+                                setSpeedKmh(Math.max(0, (location.coords.speed ?? 0) * 3.6));
                         });
                 })();
 
@@ -61,6 +65,8 @@ export default function MapScreen() {
                         <Pressable style={styles.recenterButton} onPress={handleRecenterPress}>
                                 <MaterialIcons name="my-location" size={24} color="#1B4332" />
                         </Pressable>
+
+                        <Speedometer speedKmh={speedKmh} />
                 </View>
         );
 }
