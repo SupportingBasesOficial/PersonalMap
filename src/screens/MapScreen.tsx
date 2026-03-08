@@ -103,14 +103,15 @@ export default function MapScreen() {
         const userLocation = userRegion
                 ? { latitude: userRegion.latitude, longitude: userRegion.longitude }
                 : null;
+        const isStationary = speedKmh < 3;
 
         return (
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
                                 {userLocation ? (
                                         <Marker coordinate={userLocation} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <View style={styles.markerContainer}>
-                                                        {speedKmh <= 2 && <DirectionCone heading={heading} />}
+                                                <View style={styles.markerWrapper}>
+                                                        {isStationary && <DirectionCone heading={heading} />}
 
                                                         <View style={styles.userDotOuter}>
                                                                 <View style={styles.userDotInner} />
@@ -152,7 +153,7 @@ const styles = StyleSheet.create({
                 shadowRadius: 6,
                 elevation: 6,
         },
-        markerContainer: {
+        markerWrapper: {
                 width: 40,
                 height: 40,
                 alignItems: "center",
