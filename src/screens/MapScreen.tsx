@@ -19,6 +19,7 @@ export default function MapScreen() {
         const [speedKmh, setSpeedKmh] = useState(0);
         const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
+        const speedRef = useRef(0);
 
         useEffect(() => {
                 let locationSubscription: Location.LocationSubscription | null = null;
@@ -46,9 +47,13 @@ export default function MapScreen() {
                                 setUserRegion(nextRegion);
                                 setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
                                 const speedMps = location.coords.speed ?? 0;
-                                const kmh = speedMps * 3.6;
-                                setSpeedKmh(kmh);
-                                setMovementMode(getMovementMode(kmh));
+                                const rawKmh = Math.max(0, speedMps * 3.6);
+                                const smoothedKmh = speedRef.current * 0.7 + rawKmh * 0.3;
+                                const stableKmh = smoothedKmh < 3 ? 0 : smoothedKmh;
+
+                                speedRef.current = stableKmh;
+                                setSpeedKmh(stableKmh);
+                                setMovementMode(getMovementMode(stableKmh));
                         });
                 })();
 
