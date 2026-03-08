@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import MapView, { Marker, Region } from "react-native-maps";
 import * as Location from "expo-location";
-import { Magnetometer } from "expo-sensors";
+import { Magnetometer, Accelerometer } from "expo-sensors";
 import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 import DirectionCone from "../components/DirectionCone";
@@ -13,24 +13,41 @@ export default function MapScreen() {
         const [speedKmh, setSpeedKmh] = useState(0);
         const [heading, setHeading] = useState(0);
         const mapRef = useRef<MapView | null>(null);
+        const accel = useRef({ x: 0, y: 0, z: 0 });
 
         useEffect(() => {
-                let lastHeading = 0;
+                Accelerometer.setUpdateInterval(100);
 
-                Magnetometer.setUpdateInterval(100);
-
-                const subscription = Magnetometer.addListener((data) => {
-                        let angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
-                        let nextHeading = (angle + 360) % 360;
-
-                        // simple smoothing
-                        const smoothed = lastHeading * 0.7 + nextHeading * 0.3;
-                        lastHeading = smoothed;
-
-                        setHeading(smoothed);
+                const sub = Accelerometer.addListener((data) => {
+                        accel.current = data;
                 });
 
-                return () => subscription.remove();
+                return () => sub.remove();
+        }, []);
+
+        useEffect(() => {
+                Magnetometer.setUpdateInterval(100);
+
+                const sub = Magnetometer.addListener((data) => {
+                        const { x, y } = data;
+                        const { x: ax, y: ay, z: az } = accel.current;
+
+                        const pitch = Math.atan2(-ax, Math.sqrt(ay * ay + az * az));
+                        const roll = Math.atan2(ay, az);
+
+                        const xh = x * Math.cos(pitch) + y * Math.sin(roll) * Math.sin(pitch);
+                        const yh = y * Math.cos(roll);
+
+                        let heading = Math.atan2(yh, xh) * (180 / Math.PI);
+
+                        if (heading < 0) {
+                                heading += 360;
+                        }
+
+                        setHeading(heading);
+                });
+
+                return () => sub.remove();
         }, []);
 
         useEffect(() => {
