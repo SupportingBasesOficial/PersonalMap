@@ -24,29 +24,15 @@ export default function MapScreen() {
         const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
         const speedRef = useRef(0);
-        const headingRef = useRef(0);
 
         useEffect(() => {
-                Magnetometer.setUpdateInterval(150);
+                Magnetometer.setUpdateInterval(100);
 
                 const subscription = Magnetometer.addListener((data) => {
                         const angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
-                        const normalizedAngle = angle >= 0 ? angle : angle + 360;
-                        const headingFromNorth = (450 - normalizedAngle) % 360;
+                        const headingValue = angle >= 0 ? angle : angle + 360;
 
-                        setHeading((previousHeading) => {
-                                const delta = ((headingFromNorth - previousHeading + 540) % 360) - 180;
-                                const nextHeading = (previousHeading + delta * 0.2 + 360) % 360;
-                                const visibleDelta = Math.abs(((nextHeading - headingRef.current + 540) % 360) - 180);
-
-                                // Ignore tiny heading oscillations to avoid cone flicker.
-                                if (visibleDelta < 2.5) {
-                                        return previousHeading;
-                                }
-
-                                headingRef.current = nextHeading;
-                                return nextHeading;
-                        });
+                        setHeading(headingValue);
                 });
 
                 return () => subscription.remove();
