@@ -24,6 +24,7 @@ export default function MapScreen() {
         const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
         const speedRef = useRef(0);
+        const headingRef = useRef(0);
 
         useEffect(() => {
                 Magnetometer.setUpdateInterval(150);
@@ -35,7 +36,16 @@ export default function MapScreen() {
 
                         setHeading((previousHeading) => {
                                 const delta = ((headingFromNorth - previousHeading + 540) % 360) - 180;
-                                return (previousHeading + delta * 0.2 + 360) % 360;
+                                const nextHeading = (previousHeading + delta * 0.2 + 360) % 360;
+                                const visibleDelta = Math.abs(((nextHeading - headingRef.current + 540) % 360) - 180);
+
+                                // Ignore tiny heading oscillations to avoid cone flicker.
+                                if (visibleDelta < 2.5) {
+                                        return previousHeading;
+                                }
+
+                                headingRef.current = nextHeading;
+                                return nextHeading;
                         });
                 });
 
@@ -110,22 +120,13 @@ export default function MapScreen() {
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
                                 {userCoordinate && showDirectionCone ? (
-                                        <Marker
-                                                coordinate={userCoordinate}
-                                                anchor={{ x: 0.5, y: 0.5 }}
-                                                flat
-                                                rotation={heading}
-                                        >
-                                                <DirectionCone />
+                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
+                                                <DirectionCone heading={heading} />
                                         </Marker>
                                 ) : null}
 
                                 {userCoordinate ? (
-                                        <Marker
-                                                coordinate={userCoordinate}
-                                                anchor={{ x: 0.5, y: 0.5 }}
-                                                tracksViewChanges={false}
-                                        >
+                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
                                                 <View style={styles.markerContainer}>
                                                         {movementMode === "idle" ? (
                                                                 <View style={styles.idleDot} />
