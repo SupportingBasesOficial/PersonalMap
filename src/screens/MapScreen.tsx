@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import MapView, { Marker, Region } from "react-native-maps";
 import * as Location from "expo-location";
+import { Magnetometer } from "expo-sensors";
 import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 
@@ -17,9 +18,20 @@ export default function MapScreen() {
         const [userRegion, setUserRegion] = useState<Region | null>(null);
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
         const [speedKmh, setSpeedKmh] = useState(0);
+        const [heading, setHeading] = useState(0);
         const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
         const speedRef = useRef(0);
+
+        useEffect(() => {
+                const subscription = Magnetometer.addListener((data) => {
+                        const angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
+
+                        setHeading(angle >= 0 ? angle : angle + 360);
+                });
+
+                return () => subscription.remove();
+        }, []);
 
         useEffect(() => {
                 let locationSubscription: Location.LocationSubscription | null = null;
