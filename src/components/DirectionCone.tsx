@@ -9,27 +9,35 @@ export default function DirectionCone({ heading }: Props) {
   return (
     <View
       style={[
-        styles.cone,
+        styles.wrapper,
         {
           transform: [{ rotate: `${heading}deg` }],
         },
       ]}
-    />
+    >
+      <View style={styles.cone} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  wrapper: {
+    position: "absolute",
+    width: 80,
+    height: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   cone: {
     width: 0,
     height: 0,
-    borderLeftWidth: 20,
-    borderRightWidth: 20,
-    borderBottomWidth: 40,
+    borderLeftWidth: 14,
+    borderRightWidth: 14,
+    borderBottomWidth: 32,
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
-    borderBottomColor: "rgba(0,150,255,0.4)",
+    borderBottomColor: "rgba(0,150,255,0.45)",
     position: "absolute",
-    top: -30,
-    alignSelf: "center",
+    top: 2,
   },
 });

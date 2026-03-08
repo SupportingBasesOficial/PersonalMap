@@ -27,8 +27,10 @@ export default function MapScreen() {
         useEffect(() => {
                 const subscription = Magnetometer.addListener((data) => {
                         const angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
+                        const normalized = angle >= 0 ? angle : angle + 360;
+                        const correctedHeading = (normalized + 180) % 360;
 
-                        setHeading(angle >= 0 ? angle : angle + 360);
+                        setHeading(correctedHeading);
                 });
 
                 return () => subscription.remove();
@@ -90,26 +92,28 @@ export default function MapScreen() {
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
                                 {userRegion ? (
                                         <Marker coordinate={userRegion} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <View style={styles.markerContainer}>
+                                                <View style={styles.markerWrapper}>
                                                         {speedKmh < 5 && <DirectionCone heading={heading} />}
 
-                                                        {movementMode === "idle" ? (
-                                                                <View style={styles.idleDot} />
-                                                        ) : (
-                                                                <MaterialIcons
-                                                                        name={
-                                                                                movementMode === "run"
-                                                                                        ? "directions-run"
-                                                                                        : movementMode === "bike"
-                                                                                                ? "directions-bike"
-                                                                                                : movementMode === "car"
-                                                                                                        ? "directions-car"
-                                                                                                        : "flight"
-                                                                        }
-                                                                        size={20}
-                                                                        color="#FFFFFF"
-                                                                />
-                                                        )}
+                                                        <View style={styles.markerContainer}>
+                                                                {movementMode === "idle" ? (
+                                                                        <View style={styles.idleDot} />
+                                                                ) : (
+                                                                        <MaterialIcons
+                                                                                name={
+                                                                                        movementMode === "run"
+                                                                                                ? "directions-run"
+                                                                                                : movementMode === "bike"
+                                                                                                        ? "directions-bike"
+                                                                                                        : movementMode === "car"
+                                                                                                                ? "directions-car"
+                                                                                                                : "flight"
+                                                                                }
+                                                                                size={20}
+                                                                                color="#FFFFFF"
+                                                                        />
+                                                                )}
+                                                        </View>
                                                 </View>
                                         </Marker>
                                 ) : null}
@@ -146,6 +150,12 @@ const styles = StyleSheet.create({
                 shadowOpacity: 0.2,
                 shadowRadius: 6,
                 elevation: 6,
+        },
+        markerWrapper: {
+                width: 80,
+                height: 80,
+                alignItems: "center",
+                justifyContent: "center",
         },
         markerContainer: {
                 width: 30,
