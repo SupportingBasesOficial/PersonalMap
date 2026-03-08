@@ -9,6 +9,11 @@ import DirectionCone from "../components/DirectionCone";
 
 const MIN_MOVING_SPEED_KMH = 3;
 const REGION_DELTA = { latitudeDelta: 0.01, longitudeDelta: 0.01 };
+const DEFAULT_REGION: Region = {
+        latitude: -23.55052,
+        longitude: -46.633308,
+        ...REGION_DELTA,
+};
 
 function normalizeHeading(value: number) {
         const normalized = value % 360;
@@ -53,7 +58,7 @@ function smoothCoordinate(previous: LatLng | null, next: LatLng, alpha: number):
 
 export default function MapScreen() {
         const [userCoordinate, setUserCoordinate] = useState<LatLng | null>(null);
-        const [initialRegion, setInitialRegion] = useState<Region | null>(null);
+        const [initialRegion, setInitialRegion] = useState<Region>(DEFAULT_REGION);
         const [speedKmh, setSpeedKmh] = useState(0);
         const [isFollowingUser, setIsFollowingUser] = useState(true);
         const [compassHeading, setCompassHeading] = useState(0);
@@ -63,6 +68,7 @@ export default function MapScreen() {
         const accelData = useRef({ x: 0, y: 0, z: 0 });
         const smoothedCoordinateRef = useRef<LatLng | null>(null);
         const smoothedHeadingRef = useRef<number | null>(null);
+        const hasFirstFixRef = useRef(false);
 
         useEffect(() => {
                 Accelerometer.setUpdateInterval(100);
@@ -108,6 +114,30 @@ export default function MapScreen() {
                                 return;
                         }
 
+                        // Bootstrap with best effort current position so map/user marker appears quickly.
+                        const bootstrapLocation = await Location.getCurrentPositionAsync({
+                                accuracy: Location.Accuracy.Balanced,
+                        }).catch(() => null);
+
+                        if (bootstrapLocation) {
+                                const bootstrapCoordinate: LatLng = {
+                                        latitude: bootstrapLocation.coords.latitude,
+                                        longitude: bootstrapLocation.coords.longitude,
+                                };
+
+                                const hasValidBootstrap = Number.isFinite(bootstrapCoordinate.latitude)
+                                        && Number.isFinite(bootstrapCoordinate.longitude)
+                                        && Math.abs(bootstrapCoordinate.latitude) <= 90
+                                        && Math.abs(bootstrapCoordinate.longitude) <= 180;
+
+                                if (hasValidBootstrap) {
+                                        smoothedCoordinateRef.current = bootstrapCoordinate;
+                                        hasFirstFixRef.current = true;
+                                        setUserCoordinate(bootstrapCoordinate);
+                                        setInitialRegion({ ...bootstrapCoordinate, ...REGION_DELTA });
+                                }
+                        }
+
                         locationSubscription = await Location.watchPositionAsync({
                                 accuracy: Location.Accuracy.High,
                                 timeInterval: 1000,
@@ -126,15 +156,23 @@ export default function MapScreen() {
                                         kmh = 0;
                                 }
 
-                                const accuracy = location.coords.accuracy ?? Infinity;
+                                const accuracy = location.coords.accuracy;
                                 const maxAccuracyMeters = getAcceptedAccuracyMeters(kmh);
-                                const isAcceptedAccuracy = Number.isFinite(accuracy) && accuracy <= maxAccuracyMeters;
+                                const isAcceptedAccuracy = accuracy === null || (Number.isFinite(accuracy) && accuracy <= maxAccuracyMeters);
+
+                                const rawCoordinate: LatLng = { latitude, longitude };
+
+                                // Never block first visible location; strict filtering starts after bootstrap.
+                                if (!hasFirstFixRef.current) {
+                                        smoothedCoordinateRef.current = rawCoordinate;
+                                        hasFirstFixRef.current = true;
+                                        setUserCoordinate(rawCoordinate);
+                                        setInitialRegion({ ...rawCoordinate, ...REGION_DELTA });
+                                }
 
                                 if (!isValidLatitude || !isValidLongitude || !isAcceptedAccuracy) {
                                         return;
                                 }
-
-                                const rawCoordinate: LatLng = { latitude, longitude };
 
                                 const smoothingAlpha = kmh === 0 ? 0.2 : 0.35;
                                 const nextCoordinate = smoothCoordinate(smoothedCoordinateRef.current, rawCoordinate, smoothingAlpha);
@@ -152,7 +190,7 @@ export default function MapScreen() {
                                 const nextRegion: Region = { ...nextCoordinate, ...REGION_DELTA };
 
                                 setUserCoordinate(nextCoordinate);
-                                setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
+                                setInitialRegion(nextRegion);
                                 setSpeedKmh(kmh);
                         });
                 })();
@@ -182,8 +220,6 @@ export default function MapScreen() {
                 smoothedHeadingRef.current = nextHeading;
                 setDisplayHeading(nextHeading);
         }, [compassHeading, courseHeading, isStationary]);
-
-        if (!initialRegion) return <View style={styles.container} />;
 
         const handleRecenterPress = () => {
                         if (!userCoordinate || !mapRef.current) return;
