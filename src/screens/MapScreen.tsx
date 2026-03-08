@@ -94,7 +94,7 @@ export default function MapScreen() {
                                 {userCoordinate ? (
                                         <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
                                                 <View style={styles.userMarkerWrapper}>
-                                                        {speedKmh === 0 ? <DirectionCone heading={heading} /> : null}
+                                                        {speedKmh === 0 && <DirectionCone heading={heading} />}
 
                                                         <View style={styles.userMarkerOuter}>
                                                                 <View style={styles.userMarkerInner} />
