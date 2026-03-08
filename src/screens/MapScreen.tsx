@@ -20,21 +20,36 @@ export default function MapScreen() {
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
         const [speedKmh, setSpeedKmh] = useState(0);
         const [heading, setHeading] = useState(0);
+        const [showDirectionCone, setShowDirectionCone] = useState(true);
         const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
         const speedRef = useRef(0);
 
         useEffect(() => {
+                Magnetometer.setUpdateInterval(150);
+
                 const subscription = Magnetometer.addListener((data) => {
                         const angle = Math.atan2(data.y, data.x) * (180 / Math.PI);
-                        const normalized = angle >= 0 ? angle : angle + 360;
-                        const correctedHeading = (normalized + 180) % 360;
+                        const normalizedAngle = angle >= 0 ? angle : angle + 360;
+                        const headingFromNorth = (450 - normalizedAngle) % 360;
 
-                        setHeading(correctedHeading);
+                        setHeading((previousHeading) => {
+                                const delta = ((headingFromNorth - previousHeading + 540) % 360) - 180;
+                                return (previousHeading + delta * 0.2 + 360) % 360;
+                        });
                 });
 
                 return () => subscription.remove();
         }, []);
+
+        useEffect(() => {
+                // Hysteresis prevents cone blinking near the threshold.
+                if (showDirectionCone && speedKmh > 6) {
+                        setShowDirectionCone(false);
+                } else if (!showDirectionCone && speedKmh < 4) {
+                        setShowDirectionCone(true);
+                }
+        }, [showDirectionCone, speedKmh]);
 
         useEffect(() => {
                 let locationSubscription: Location.LocationSubscription | null = null;
@@ -94,7 +109,7 @@ export default function MapScreen() {
         return (
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-                                {userCoordinate && speedKmh < 5 ? (
+                                {userCoordinate && showDirectionCone ? (
                                         <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
                                                 <DirectionCone heading={heading} />
                                         </Marker>
