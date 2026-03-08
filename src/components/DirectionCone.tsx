@@ -22,7 +22,6 @@ export default function DirectionCone({ heading }: Props) {
 
 const styles = StyleSheet.create({
   wrapper: {
-    position: "absolute",
     width: 80,
     height: 80,
     alignItems: "center",

@@ -87,33 +87,39 @@ export default function MapScreen() {
                         mapRef.current.animateToRegion(userRegion, 600);
         };
 
+        const userCoordinate = userRegion
+                ? { latitude: userRegion.latitude, longitude: userRegion.longitude }
+                : null;
+
         return (
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-                                {userRegion ? (
-                                        <Marker coordinate={userRegion} anchor={{ x: 0.5, y: 0.5 }}>
-                                                <View style={styles.markerWrapper}>
-                                                        {speedKmh < 5 && <DirectionCone heading={heading} />}
+                                {userCoordinate && speedKmh < 5 ? (
+                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
+                                                <DirectionCone heading={heading} />
+                                        </Marker>
+                                ) : null}
 
-                                                        <View style={styles.markerContainer}>
-                                                                {movementMode === "idle" ? (
-                                                                        <View style={styles.idleDot} />
-                                                                ) : (
-                                                                        <MaterialIcons
-                                                                                name={
-                                                                                        movementMode === "run"
-                                                                                                ? "directions-run"
-                                                                                                : movementMode === "bike"
-                                                                                                        ? "directions-bike"
-                                                                                                        : movementMode === "car"
-                                                                                                                ? "directions-car"
-                                                                                                                : "flight"
-                                                                                }
-                                                                                size={20}
-                                                                                color="#FFFFFF"
-                                                                        />
-                                                                )}
-                                                        </View>
+                                {userCoordinate ? (
+                                        <Marker coordinate={userCoordinate} anchor={{ x: 0.5, y: 0.5 }}>
+                                                <View style={styles.markerContainer}>
+                                                        {movementMode === "idle" ? (
+                                                                <View style={styles.idleDot} />
+                                                        ) : (
+                                                                <MaterialIcons
+                                                                        name={
+                                                                                movementMode === "run"
+                                                                                        ? "directions-run"
+                                                                                        : movementMode === "bike"
+                                                                                                ? "directions-bike"
+                                                                                                : movementMode === "car"
+                                                                                                        ? "directions-car"
+                                                                                                        : "flight"
+                                                                        }
+                                                                        size={20}
+                                                                        color="#FFFFFF"
+                                                                />
+                                                        )}
                                                 </View>
                                         </Marker>
                                 ) : null}
@@ -150,12 +156,6 @@ const styles = StyleSheet.create({
                 shadowOpacity: 0.2,
                 shadowRadius: 6,
                 elevation: 6,
-        },
-        markerWrapper: {
-                width: 80,
-                height: 80,
-                alignItems: "center",
-                justifyContent: "center",
         },
         markerContainer: {
                 width: 30,
