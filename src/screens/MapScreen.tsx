@@ -87,13 +87,15 @@ export default function MapScreen() {
                                 setUserRegion(nextRegion);
                                 setInitialRegion((currentInitialRegion) => currentInitialRegion ?? nextRegion);
                                 const speedMps = location.coords.speed ?? 0;
-                                const rawKmh = Math.max(0, speedMps * 3.6);
-                                const smoothedKmh = speedRef.current * 0.7 + rawKmh * 0.3;
-                                const stableKmh = smoothedKmh < 3 ? 0 : smoothedKmh;
+                                let kmh = speedMps * 3.6;
 
-                                speedRef.current = stableKmh;
-                                setSpeedKmh(stableKmh);
-                                setMovementMode(getMovementMode(stableKmh));
+                                if (kmh < 3) {
+                                        kmh = 0;
+                                }
+
+                                speedRef.current = kmh;
+                                setSpeedKmh(kmh);
+                                setMovementMode(getMovementMode(kmh));
                         });
                 })();
 
