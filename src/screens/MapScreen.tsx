@@ -5,10 +5,19 @@ import * as Location from "expo-location";
 import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 
+function getMovementMode(speed: number) {
+        if (speed < 5) return "idle";
+        if (speed < 10) return "run";
+        if (speed < 25) return "bike";
+        if (speed < 150) return "car";
+        return "plane";
+}
+
 export default function MapScreen() {
         const [userRegion, setUserRegion] = useState<Region | null>(null);
         const [initialRegion, setInitialRegion] = useState<Region | null>(null);
         const [speedKmh, setSpeedKmh] = useState(0);
+        const [movementMode, setMovementMode] = useState("idle");
         const mapRef = useRef<MapView | null>(null);
 
         useEffect(() => {
@@ -39,6 +48,7 @@ export default function MapScreen() {
                                 const speedMps = location.coords.speed ?? 0;
                                 const kmh = speedMps * 3.6;
                                 setSpeedKmh(kmh);
+                                setMovementMode(getMovementMode(kmh));
                         });
                 })();
 
@@ -60,7 +70,29 @@ export default function MapScreen() {
         return (
                 <View style={styles.container}>
                         <MapView ref={mapRef} style={styles.map} initialRegion={initialRegion}>
-                                {userRegion ? <Marker coordinate={userRegion} /> : null}
+                                {userRegion ? (
+                                        <Marker coordinate={userRegion} anchor={{ x: 0.5, y: 0.5 }}>
+                                                <View style={styles.markerContainer}>
+                                                        {movementMode === "idle" ? (
+                                                                <View style={styles.idleDot} />
+                                                        ) : (
+                                                                <MaterialIcons
+                                                                        name={
+                                                                                movementMode === "run"
+                                                                                        ? "directions-run"
+                                                                                        : movementMode === "bike"
+                                                                                                ? "directions-bike"
+                                                                                                : movementMode === "car"
+                                                                                                        ? "directions-car"
+                                                                                                        : "flight"
+                                                                        }
+                                                                        size={20}
+                                                                        color="#FFFFFF"
+                                                                />
+                                                        )}
+                                                </View>
+                                        </Marker>
+                                ) : null}
                         </MapView>
 
                         <Speedometer speedKmh={speedKmh} />
@@ -94,5 +126,21 @@ const styles = StyleSheet.create({
                 shadowOpacity: 0.2,
                 shadowRadius: 6,
                 elevation: 6,
-        }
+        },
+        markerContainer: {
+                width: 30,
+                height: 30,
+                borderRadius: 15,
+                backgroundColor: "rgba(27,67,50,0.9)",
+                alignItems: "center",
+                justifyContent: "center",
+                borderWidth: 2,
+                borderColor: "#FFFFFF",
+        },
+        idleDot: {
+                width: 12,
+                height: 12,
+                borderRadius: 6,
+                backgroundColor: "#3B82F6",
+        },
 });
