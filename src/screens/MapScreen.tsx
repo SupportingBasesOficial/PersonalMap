@@ -15,7 +15,9 @@ export default function MapScreen() {
                                 return;
                         }
 
-                        const location = await Location.getCurrentPositionAsync({});
+                        const location = await Location.getCurrentPositionAsync({
+                                accuracy: Location.Accuracy.High,
+                        });
 
                         setRegion({
                                 latitude: location.coords.latitude,
