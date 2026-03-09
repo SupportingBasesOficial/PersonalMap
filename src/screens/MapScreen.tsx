@@ -29,6 +29,18 @@ function smoothHeading(previous: number | null, next: number, alpha: number) {
         return normalizeHeading(previous + delta * alpha);
 }
 
+function angularDistance(a: number, b: number) {
+        return Math.abs(((a - b + 540) % 360) - 180);
+}
+
+function approximateDistanceMeters(a: LatLng, b: LatLng) {
+        const metersPerDegreeLat = 111_320;
+        const metersPerDegreeLng = 111_320 * Math.cos(((a.latitude + b.latitude) / 2) * (Math.PI / 180));
+        const dLat = (a.latitude - b.latitude) * metersPerDegreeLat;
+        const dLng = (a.longitude - b.longitude) * metersPerDegreeLng;
+        return Math.sqrt(dLat * dLat + dLng * dLng);
+}
+
 function getAcceptedAccuracyMeters(speedKmh: number) {
         if (speedKmh === 0) {
                 return 20;
@@ -43,6 +55,22 @@ function getAcceptedAccuracyMeters(speedKmh: number) {
         }
 
         return 65;
+}
+
+function getCoordinateSmoothingAlpha(speedKmh: number) {
+        if (speedKmh === 0) {
+                return 0.2;
+        }
+
+        if (speedKmh < 15) {
+                return 0.4;
+        }
+
+        if (speedKmh < 40) {
+                return 0.58;
+        }
+
+        return 0.72;
 }
 
 function smoothCoordinate(previous: LatLng | null, next: LatLng, alpha: number): LatLng {
@@ -69,6 +97,9 @@ export default function MapScreen() {
         const smoothedCoordinateRef = useRef<LatLng | null>(null);
         const smoothedHeadingRef = useRef<number | null>(null);
         const hasFirstFixRef = useRef(false);
+        const lastCameraCenterRef = useRef<LatLng | null>(null);
+        const lastCameraHeadingRef = useRef<number | null>(null);
+        const lastCameraUpdateAtRef = useRef(0);
 
         useEffect(() => {
                 Accelerometer.setUpdateInterval(100);
@@ -139,9 +170,9 @@ export default function MapScreen() {
                         }
 
                         locationSubscription = await Location.watchPositionAsync({
-                                accuracy: Location.Accuracy.High,
-                                timeInterval: 1000,
-                                distanceInterval: 1,
+                                accuracy: Location.Accuracy.BestForNavigation,
+                                timeInterval: 500,
+                                distanceInterval: 0.5,
                         }, (location) => {
                                 const latitude = location.coords.latitude;
                                 const longitude = location.coords.longitude;
@@ -174,7 +205,7 @@ export default function MapScreen() {
                                         return;
                                 }
 
-                                const smoothingAlpha = kmh === 0 ? 0.2 : 0.35;
+                                const smoothingAlpha = getCoordinateSmoothingAlpha(kmh);
                                 const nextCoordinate = smoothCoordinate(smoothedCoordinateRef.current, rawCoordinate, smoothingAlpha);
                                 smoothedCoordinateRef.current = nextCoordinate;
 
@@ -207,14 +238,33 @@ export default function MapScreen() {
                         return;
                 }
 
+                const now = Date.now();
+                const previousCenter = lastCameraCenterRef.current;
+                const previousHeading = lastCameraHeadingRef.current;
+                const movedMeters = previousCenter ? approximateDistanceMeters(userCoordinate, previousCenter) : Infinity;
+                const headingDelta = previousHeading === null ? Infinity : angularDistance(displayHeading, previousHeading);
+                const elapsedSinceLastCameraUpdate = now - lastCameraUpdateAtRef.current;
+                const shouldUpdateForMovement = movedMeters >= 0.8;
+                const shouldUpdateForHeading = headingDelta >= 5 && elapsedSinceLastCameraUpdate >= 200;
+
+                if (!shouldUpdateForMovement && !shouldUpdateForHeading) {
+                        return;
+                }
+
+                const duration = speedKmh >= 35 ? 120 : speedKmh >= 12 ? 180 : 260;
+
                 mapRef.current.animateCamera(
                         {
                                 center: userCoordinate,
                                 heading: displayHeading,
                         },
-                        { duration: 450 }
+                        { duration }
                 );
-        }, [userCoordinate, displayHeading, isFollowingUser]);
+
+                lastCameraCenterRef.current = userCoordinate;
+                lastCameraHeadingRef.current = displayHeading;
+                lastCameraUpdateAtRef.current = now;
+        }, [userCoordinate, displayHeading, isFollowingUser, speedKmh]);
 
         const isStationary = speedKmh < MIN_MOVING_SPEED_KMH;
 
