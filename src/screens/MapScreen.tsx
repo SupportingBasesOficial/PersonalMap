@@ -6,7 +6,8 @@ import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 import DirectionCone from "../components/DirectionCone";
 
-const MIN_MOVING_SPEED_KMH = 3;
+const START_MOVING_SPEED_KMH = 6;
+const STOP_MOVING_SPEED_KMH = 2;
 const REGION_DELTA = { latitudeDelta: 0.01, longitudeDelta: 0.01 };
 const DEFAULT_REGION: Region = {
         latitude: -23.55052,
@@ -87,6 +88,7 @@ export default function MapScreen() {
         const [userCoordinate, setUserCoordinate] = useState<LatLng | null>(null);
         const [initialRegion, setInitialRegion] = useState<Region>(DEFAULT_REGION);
         const [speedKmh, setSpeedKmh] = useState(0);
+        const [isMoving, setIsMoving] = useState(false);
         const [isFollowingUser, setIsFollowingUser] = useState(true);
         const [compassHeading, setCompassHeading] = useState(0);
         const [courseHeading, setCourseHeading] = useState<number | null>(null);
@@ -95,6 +97,7 @@ export default function MapScreen() {
         const smoothedCoordinateRef = useRef<LatLng | null>(null);
         const smoothedHeadingRef = useRef<number | null>(null);
         const hasFirstFixRef = useRef(false);
+        const isMovingRef = useRef(false);
         const lastCameraCenterRef = useRef<LatLng | null>(null);
         const lastCameraHeadingRef = useRef<number | null>(null);
         const lastCameraUpdateAtRef = useRef(0);
@@ -156,12 +159,20 @@ export default function MapScreen() {
                                 const isValidLatitude = Number.isFinite(latitude) && Math.abs(latitude) <= 90;
                                 const isValidLongitude = Number.isFinite(longitude) && Math.abs(longitude) <= 180;
                                 const speedMps = location.coords.speed ?? 0;
-                                let kmh = speedMps * 3.6;
+                                const rawKmh = speedMps * 3.6;
 
-                                // Treat very low speed as stopped to avoid noisy speed/heading flips.
-                                if (kmh < MIN_MOVING_SPEED_KMH) {
-                                        kmh = 0;
+                                // Hysteresis prevents rapid moving/stopped toggling near low speed.
+                                const wasMoving = isMovingRef.current;
+                                const nextIsMoving = wasMoving
+                                        ? rawKmh > STOP_MOVING_SPEED_KMH
+                                        : rawKmh >= START_MOVING_SPEED_KMH;
+
+                                if (nextIsMoving !== wasMoving) {
+                                        isMovingRef.current = nextIsMoving;
+                                        setIsMoving(nextIsMoving);
                                 }
+
+                                const kmh = nextIsMoving ? rawKmh : 0;
 
                                 const accuracy = location.coords.accuracy;
                                 const maxAccuracyMeters = getAcceptedAccuracyMeters(kmh);
@@ -188,9 +199,9 @@ export default function MapScreen() {
                                 const gpsHeading = location.coords.heading;
                                 const hasGpsHeading = Number.isFinite(gpsHeading) && gpsHeading !== null && gpsHeading >= 0;
 
-                                if (kmh > 0 && hasGpsHeading) {
+                                if (nextIsMoving && hasGpsHeading) {
                                         setCourseHeading(normalizeHeading(gpsHeading));
-                                } else if (kmh === 0) {
+                                } else {
                                         setCourseHeading(null);
                                 }
 
@@ -225,7 +236,7 @@ export default function MapScreen() {
                 const headingDelta = previousHeading === null ? Infinity : angularDistance(displayHeading, previousHeading);
                 const elapsedSinceLastCameraUpdate = now - lastCameraUpdateAtRef.current;
                 const shouldUpdateForMovement = movedMeters >= 0.8;
-                const shouldUpdateForHeading = headingDelta >= 5 && elapsedSinceLastCameraUpdate >= 200;
+                const shouldUpdateForHeading = isMoving && headingDelta >= 5 && elapsedSinceLastCameraUpdate >= 200;
 
                 if (!shouldUpdateForMovement && !shouldUpdateForHeading) {
                         return;
@@ -233,25 +244,38 @@ export default function MapScreen() {
 
                 const duration = speedKmh >= 35 ? 120 : speedKmh >= 12 ? 180 : 260;
 
+                const cameraHeading = isMoving ? displayHeading : (lastCameraHeadingRef.current ?? displayHeading);
+
                 mapRef.current.animateCamera(
                         {
                                 center: userCoordinate,
-                                heading: displayHeading,
+                                heading: cameraHeading,
                         },
                         { duration }
                 );
 
                 lastCameraCenterRef.current = userCoordinate;
-                lastCameraHeadingRef.current = displayHeading;
+                lastCameraHeadingRef.current = cameraHeading;
                 lastCameraUpdateAtRef.current = now;
-        }, [userCoordinate, displayHeading, isFollowingUser, speedKmh]);
+        }, [userCoordinate, displayHeading, isFollowingUser, speedKmh, isMoving]);
 
-        const isStationary = speedKmh < MIN_MOVING_SPEED_KMH;
+        const isStationary = !isMoving;
 
         useEffect(() => {
                 const sourceHeading = isStationary || courseHeading === null ? compassHeading : courseHeading;
-                const alpha = isStationary ? 0.14 : 0.32;
-                const nextHeading = smoothHeading(smoothedHeadingRef.current, sourceHeading, alpha);
+                const previousHeading = smoothedHeadingRef.current;
+                const headingDelta = previousHeading === null ? 0 : angularDistance(sourceHeading, previousHeading);
+
+                // When standing still, magnetometer spikes are common. Add dead-zone and stronger damping.
+                if (isStationary && previousHeading !== null && headingDelta < 1.5) {
+                        setDisplayHeading(previousHeading);
+                        return;
+                }
+
+                const alpha = isStationary
+                        ? (headingDelta > 35 ? 0.03 : 0.08)
+                        : 0.32;
+                const nextHeading = smoothHeading(previousHeading, sourceHeading, alpha);
 
                 smoothedHeadingRef.current = nextHeading;
                 setDisplayHeading(nextHeading);
