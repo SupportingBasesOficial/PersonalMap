@@ -41,6 +41,16 @@ function approximateDistanceMeters(a: LatLng, b: LatLng) {
         return Math.sqrt(dLat * dLat + dLng * dLng);
 }
 
+function getStationaryJitterThresholdMeters(accuracy: number | null) {
+        const base = 2.5;
+
+        if (accuracy === null || !Number.isFinite(accuracy)) {
+                return base;
+        }
+
+        return Math.max(base, accuracy * 0.25);
+}
+
 function getAcceptedAccuracyMeters(speedKmh: number) {
         if (speedKmh === 0) {
                 return 20;
@@ -192,6 +202,18 @@ export default function MapScreen() {
                                         return;
                                 }
 
+                                const previousCoordinate = smoothedCoordinateRef.current;
+                                if (!nextIsMoving && previousCoordinate) {
+                                        const distanceFromPrevious = approximateDistanceMeters(rawCoordinate, previousCoordinate);
+                                        const stationaryJitterThreshold = getStationaryJitterThresholdMeters(accuracy);
+
+                                        // Freeze micro-jitter while stationary to keep the blue dot visually stable.
+                                        if (distanceFromPrevious < stationaryJitterThreshold) {
+                                                setSpeedKmh(0);
+                                                return;
+                                        }
+                                }
+
                                 const smoothingAlpha = getCoordinateSmoothingAlpha(kmh);
                                 const nextCoordinate = smoothCoordinate(smoothedCoordinateRef.current, rawCoordinate, smoothingAlpha);
                                 smoothedCoordinateRef.current = nextCoordinate;
@@ -303,6 +325,7 @@ export default function MapScreen() {
                                                 coordinate={userCoordinate}
                                                 anchor={{ x: 0.5, y: 0.5 }}
                                                 centerOffset={{ x: 0, y: 0 }}
+                                                tracksViewChanges={false}
                                         >
                                                 <View style={styles.markerWrapper}>
                                                         <DirectionCone heading={coneHeading} />
@@ -354,13 +377,14 @@ const styles = StyleSheet.create({
                 backgroundColor: "#1B4332",
         },
         markerWrapper: {
-                width: 40,
-                height: 40,
+                width: 64,
+                height: 64,
                 alignItems: "center",
                 justifyContent: "center",
                 overflow: "visible",
         },
         userDotOuter: {
+                position: "absolute",
                 width: 20,
                 height: 20,
                 borderRadius: 10,

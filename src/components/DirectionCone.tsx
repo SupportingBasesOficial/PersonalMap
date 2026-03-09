@@ -22,8 +22,8 @@ export default function DirectionCone({ heading }: Props) {
 const styles = StyleSheet.create({
       container: {
             position: "absolute",
-                width: 40,
-                    height: 40,
+                width: 64,
+                    height: 64,
                         alignItems: "center",
                             justifyContent: "center",
                             zIndex: 2,
@@ -31,7 +31,7 @@ const styles = StyleSheet.create({
       },
         cone: {
                 position: "absolute",
-                    top: -10,
+                    top: 6,
                     width: 0,
                         height: 0,
                             borderLeftWidth: 10,
