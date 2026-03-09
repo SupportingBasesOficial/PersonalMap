@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import MapView, { Marker, Region, LatLng } from "react-native-maps";
 import * as Location from "expo-location";
-import { Magnetometer, Accelerometer } from "expo-sensors";
 import { MaterialIcons } from "@expo/vector-icons";
 import Speedometer from "../components/Speedometer";
 import DirectionCone from "../components/DirectionCone";
@@ -93,7 +92,6 @@ export default function MapScreen() {
         const [courseHeading, setCourseHeading] = useState<number | null>(null);
         const [displayHeading, setDisplayHeading] = useState(0);
         const mapRef = useRef<MapView | null>(null);
-        const accelData = useRef({ x: 0, y: 0, z: 0 });
         const smoothedCoordinateRef = useRef<LatLng | null>(null);
         const smoothedHeadingRef = useRef<number | null>(null);
         const hasFirstFixRef = useRef(false);
@@ -102,40 +100,8 @@ export default function MapScreen() {
         const lastCameraUpdateAtRef = useRef(0);
 
         useEffect(() => {
-                Accelerometer.setUpdateInterval(100);
-
-                const sub = Accelerometer.addListener((data) => {
-                        accelData.current = data;
-                });
-
-                return () => sub.remove();
-        }, []);
-
-        useEffect(() => {
-                Magnetometer.setUpdateInterval(100);
-
-                const sub = Magnetometer.addListener((data) => {
-                        const { x, y } = data;
-                        const { x: ax, y: ay, z: az } = accelData.current;
-
-                        const pitch = Math.atan2(-ax, Math.sqrt(ay * ay + az * az));
-                        const roll = Math.atan2(ay, az);
-
-                        const xh = x * Math.cos(pitch) + y * Math.sin(roll) * Math.sin(pitch);
-                        const yh = y * Math.cos(roll);
-
-                        let heading = Math.atan2(yh, xh) * (180 / Math.PI);
-
-                        if (heading < 0) heading += 360;
-
-                        setCompassHeading(heading);
-                });
-
-                return () => sub.remove();
-        }, []);
-
-        useEffect(() => {
                 let locationSubscription: Location.LocationSubscription | null = null;
+                let headingSubscription: Location.LocationSubscription | null = null;
 
                 (async () => {
                         const { status } = await Location.requestForegroundPermissionsAsync();
@@ -144,6 +110,16 @@ export default function MapScreen() {
                                 console.log("Permissao de localizacao negada");
                                 return;
                         }
+
+                        headingSubscription = await Location.watchHeadingAsync((headingData) => {
+                                const headingValue = headingData.trueHeading >= 0
+                                        ? headingData.trueHeading
+                                        : headingData.magHeading;
+
+                                if (Number.isFinite(headingValue)) {
+                                        setCompassHeading(normalizeHeading(headingValue));
+                                }
+                        });
 
                         // Bootstrap with best effort current position so map/user marker appears quickly.
                         const bootstrapLocation = await Location.getCurrentPositionAsync({
@@ -230,6 +206,10 @@ export default function MapScreen() {
                         if (locationSubscription) {
                                 locationSubscription.remove();
                         }
+
+                        if (headingSubscription) {
+                                headingSubscription.remove();
+                        }
                 };
         }, []);
 
@@ -284,6 +264,8 @@ export default function MapScreen() {
                         mapRef.current.animateToRegion({ ...userCoordinate, ...REGION_DELTA }, 600);
         };
 
+        const coneHeading = isFollowingUser ? 0 : displayHeading;
+
         return (
                 <View style={styles.container}>
                         <MapView
@@ -299,7 +281,7 @@ export default function MapScreen() {
                                                 centerOffset={{ x: 0, y: 0 }}
                                         >
                                                 <View style={styles.markerWrapper}>
-                                                        <DirectionCone heading={displayHeading} />
+                                                        <DirectionCone heading={coneHeading} />
 
                                                         <View style={styles.userDotOuter}>
                                                                 <View style={styles.userDotInner} />
