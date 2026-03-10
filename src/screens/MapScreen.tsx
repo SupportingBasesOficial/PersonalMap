@@ -12,6 +12,7 @@ const DEFAULT_COORDINATE: LatLng = {
 };
 
 const MIN_CAMERA_MOVE_METERS = 1;
+const MIN_CAMERA_HEADING_DELTA_DEGREES = 3;
 
 function approximateDistanceMeters(a: LatLng, b: LatLng) {
   const metersPerDegreeLat = 111_320;
@@ -21,11 +22,16 @@ function approximateDistanceMeters(a: LatLng, b: LatLng) {
   return Math.sqrt(dLat * dLat + dLng * dLng);
 }
 
+function angleDelta(from: number, to: number) {
+  return ((to - from + 540) % 360) - 180;
+}
+
 export default function MapScreen() {
   const location = useUserLocation();
   const [followUser, setFollowUser] = useState(true);
   const mapRef = useRef<MapView | null>(null);
   const lastCameraCenterRef = useRef<LatLng>(DEFAULT_COORDINATE);
+  const lastCameraHeadingRef = useRef(0);
 
   useEffect(() => {
     if (!followUser || location.status !== "ready" || !location.coordinate) {
@@ -33,15 +39,18 @@ export default function MapScreen() {
     }
 
     const movedMeters = approximateDistanceMeters(location.coordinate, lastCameraCenterRef.current);
-    if (movedMeters < MIN_CAMERA_MOVE_METERS) {
+    const headingDelta = Math.abs(angleDelta(location.heading, lastCameraHeadingRef.current));
+
+    if (movedMeters < MIN_CAMERA_MOVE_METERS && headingDelta < MIN_CAMERA_HEADING_DELTA_DEGREES) {
       return;
     }
 
     lastCameraCenterRef.current = location.coordinate;
+    lastCameraHeadingRef.current = location.heading;
     mapRef.current?.animateCamera(
       {
         center: location.coordinate,
-        heading: 0,
+        heading: location.heading,
         pitch: 0,
         zoom: 18,
       },
@@ -56,10 +65,11 @@ export default function MapScreen() {
 
     setFollowUser(true);
     lastCameraCenterRef.current = location.coordinate;
+    lastCameraHeadingRef.current = location.heading;
     mapRef.current?.animateCamera(
       {
         center: location.coordinate,
-        heading: 0,
+        heading: location.heading,
         pitch: 0,
         zoom: 18,
       },
@@ -104,7 +114,7 @@ export default function MapScreen() {
         onPanDrag={() => setFollowUser(false)}
         initialCamera={{
           center: coordinate,
-          heading: 0,
+          heading: location.heading,
           pitch: 0,
           zoom: 18,
         }}
@@ -116,7 +126,7 @@ export default function MapScreen() {
           tracksViewChanges={false}
         >
           <View style={styles.markerWrapper}>
-            <DirectionCone heading={location.heading} />
+            <DirectionCone heading={followUser ? 0 : location.heading} />
             <UserDot />
           </View>
         </Marker>

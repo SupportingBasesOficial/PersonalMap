@@ -11,10 +11,20 @@ export type UserLocationState = {
 };
 
 const MAX_ACCEPTED_ACCURACY_METERS = 50;
+const HEADING_SMOOTHING_ALPHA = 0.2;
 
 function normalizeHeading(value: number) {
   const normalized = value % 360;
   return normalized < 0 ? normalized + 360 : normalized;
+}
+
+function angleDelta(from: number, to: number) {
+  return ((to - from + 540) % 360) - 180;
+}
+
+function smoothHeading(previous: number, next: number) {
+  const delta = angleDelta(previous, next);
+  return normalizeHeading(previous + HEADING_SMOOTHING_ALPHA * delta);
 }
 
 function sanitizeSpeedKmh(speedMps: number | null) {
@@ -71,7 +81,7 @@ export function useUserLocation(): UserLocationState {
 
           setState((previous) => ({
             ...previous,
-            heading: normalizeHeading(nextHeading),
+            heading: smoothHeading(previous.heading, normalizeHeading(nextHeading)),
           }));
         });
 
