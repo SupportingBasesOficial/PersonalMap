@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as Location from "expo-location";
 
 export type UserLocationState = {
@@ -12,6 +12,7 @@ export type UserLocationState = {
 
 const MAX_ACCEPTED_ACCURACY_METERS = 50;
 const HEADING_SMOOTHING_ALPHA = 0.2;
+const GPS_COURSE_MIN_SPEED_KMH = 6;
 
 function normalizeHeading(value: number) {
   const normalized = value % 360;
@@ -25,6 +26,14 @@ function angleDelta(from: number, to: number) {
 function smoothHeading(previous: number, next: number) {
   const delta = angleDelta(previous, next);
   return normalizeHeading(previous + HEADING_SMOOTHING_ALPHA * delta);
+}
+
+function sanitizeGpsCourseHeading(heading: number | null) {
+  if (heading === null || !Number.isFinite(heading) || heading < 0) {
+    return null;
+  }
+
+  return normalizeHeading(heading);
 }
 
 function sanitizeSpeedKmh(speedMps: number | null) {
@@ -44,10 +53,34 @@ export function useUserLocation(): UserLocationState {
     heading: 0,
   });
 
+  const compassHeadingRef = useRef(0);
+  const gpsCourseHeadingRef = useRef<number | null>(null);
+  const speedKmhRef = useRef(0);
+  const smoothedHeadingRef = useRef(0);
+
   useEffect(() => {
     let cancelled = false;
     let positionSubscription: Location.LocationSubscription | null = null;
     let headingSubscription: Location.LocationSubscription | null = null;
+
+    const computeSourceHeading = () => {
+      if (speedKmhRef.current >= GPS_COURSE_MIN_SPEED_KMH && gpsCourseHeadingRef.current !== null) {
+        return gpsCourseHeadingRef.current;
+      }
+
+      return compassHeadingRef.current;
+    };
+
+    const updateHeadingState = () => {
+      const sourceHeading = computeSourceHeading();
+      const nextSmoothed = smoothHeading(smoothedHeadingRef.current, sourceHeading);
+      smoothedHeadingRef.current = nextSmoothed;
+
+      setState((previous) => ({
+        ...previous,
+        heading: nextSmoothed,
+      }));
+    };
 
     const start = async () => {
       try {
@@ -79,10 +112,8 @@ export function useUserLocation(): UserLocationState {
             return;
           }
 
-          setState((previous) => ({
-            ...previous,
-            heading: smoothHeading(previous.heading, normalizeHeading(nextHeading)),
-          }));
+          compassHeadingRef.current = normalizeHeading(nextHeading);
+          updateHeadingState();
         });
 
         const bootstrap = await Location.getCurrentPositionAsync({
@@ -114,6 +145,10 @@ export function useUserLocation(): UserLocationState {
               accuracy: bootstrapAccuracy,
               speedKmh: sanitizeSpeedKmh(bootstrap.coords.speed),
             }));
+
+            speedKmhRef.current = sanitizeSpeedKmh(bootstrap.coords.speed);
+            gpsCourseHeadingRef.current = sanitizeGpsCourseHeading(bootstrap.coords.heading);
+            updateHeadingState();
           }
         }
 
@@ -148,12 +183,17 @@ export function useUserLocation(): UserLocationState {
               return;
             }
 
+            const nextSpeedKmh = sanitizeSpeedKmh(location.coords.speed);
+            speedKmhRef.current = nextSpeedKmh;
+            gpsCourseHeadingRef.current = sanitizeGpsCourseHeading(location.coords.heading);
+            updateHeadingState();
+
             setState((previous) => ({
               ...previous,
               status: "ready",
               coordinate: nextCoordinate,
               accuracy: nextAccuracy,
-              speedKmh: sanitizeSpeedKmh(location.coords.speed),
+              speedKmh: nextSpeedKmh,
             }));
           }
         );

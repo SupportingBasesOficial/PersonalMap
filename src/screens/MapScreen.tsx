@@ -56,7 +56,7 @@ export default function MapScreen() {
       },
       { duration: 180 }
     );
-  }, [followUser, location.coordinate, location.status]);
+  }, [followUser, location.coordinate, location.heading, location.status]);
 
   const handleRecenter = () => {
     if (location.status !== "ready" || !location.coordinate) {
