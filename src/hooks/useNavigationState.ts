@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Location from "expo-location";
 import type { LatLng } from "react-native-maps";
+import { updateKalmanPosition, type KalmanState } from "../utils/kalmanFilter";
 
 export type MotionMode = "stationary" | "moving";
+export type NavigationMode = "stationary" | "walking" | "cycling" | "driving";
 
 export type NavigationState = {
   coordinate: { latitude: number; longitude: number };
   speedKmh: number;
   motionMode: MotionMode;
+  navigationMode: NavigationMode;
   worldHeading: number;
   cameraHeading: number;
   markerHeadingRelative: number;
@@ -28,7 +31,7 @@ const STOP_MOVING_SPEED_KMH = 2;
 const LOW_SPEED_HEADING_KMH = 4;
 const HIGH_SPEED_HEADING_KMH = 12;
 const MAX_ACCEPTED_ACCURACY_METERS = 30;
-const HEADING_ALPHA = 0.15;
+const DRIFT_ALIGNMENT_THRESHOLD_DEGREES = 25;
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -65,11 +68,44 @@ function sanitizeSpeedKmh(speedMps: number | null) {
   return Math.max(0, speedMps * 3.6);
 }
 
+function getNavigationMode(speedKmh: number): NavigationMode {
+  if (speedKmh < 2) {
+    return "stationary";
+  }
+
+  if (speedKmh < 7) {
+    return "walking";
+  }
+
+  if (speedKmh < 20) {
+    return "cycling";
+  }
+
+  return "driving";
+}
+
+function getDynamicAlphas(mode: NavigationMode) {
+  if (mode === "walking") {
+    return { alphaHeading: 0.25, alphaPosition: 0.35 };
+  }
+
+  if (mode === "cycling") {
+    return { alphaHeading: 0.2, alphaPosition: 0.45 };
+  }
+
+  if (mode === "driving") {
+    return { alphaHeading: 0.15, alphaPosition: 0.6 };
+  }
+
+  return { alphaHeading: 0.25, alphaPosition: 0.2 };
+}
+
 export function useNavigationState(params: UseNavigationStateParams = {}): NavigationState {
   const followUser = params.followUser ?? true;
   const [coordinate, setCoordinate] = useState<LatLng>(DEFAULT_COORDINATE);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [motionMode, setMotionMode] = useState<MotionMode>("stationary");
+  const [navigationMode, setNavigationMode] = useState<NavigationMode>("stationary");
   const [worldHeading, setWorldHeading] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
 
@@ -79,6 +115,8 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
   const compassHeadingRef = useRef(0);
   const gpsCourseRef = useRef<number | null>(null);
   const speedKmhRef = useRef(0);
+  const navigationModeRef = useRef<NavigationMode>("stationary");
+  const kalmanStateRef = useRef<KalmanState | null>(null);
   const lockedCameraHeadingRef = useRef(0);
   const hasInitialFixRef = useRef(false);
 
@@ -93,20 +131,30 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
     let headingSubscription: Location.LocationSubscription | null = null;
     let cancelled = false;
 
-    const updateHeadingState = (effectiveSpeedKmh: number) => {
-      const compassHeading = compassHeadingRef.current;
+    const updateHeadingState = (effectiveSpeedKmh: number, alphaHeading: number) => {
+      let compassHeading = compassHeadingRef.current;
       const gpsCourse = gpsCourseRef.current;
+
+      if (effectiveSpeedKmh > 10 && gpsCourse !== null) {
+        const driftDelta = Math.abs(angleDelta(compassHeading, gpsCourse));
+        if (driftDelta > DRIFT_ALIGNMENT_THRESHOLD_DEGREES) {
+          compassHeading = lerpAngle(compassHeading, gpsCourse, 0.08);
+          compassHeadingRef.current = compassHeading;
+        }
+      }
 
       let sourceHeading = compassHeading;
 
-      if (effectiveSpeedKmh > HIGH_SPEED_HEADING_KMH && gpsCourse !== null) {
+      if (effectiveSpeedKmh < 2) {
+        sourceHeading = compassHeading;
+      } else if (effectiveSpeedKmh > HIGH_SPEED_HEADING_KMH && gpsCourse !== null) {
         sourceHeading = gpsCourse;
       } else if (effectiveSpeedKmh >= LOW_SPEED_HEADING_KMH && gpsCourse !== null) {
         const t = (effectiveSpeedKmh - LOW_SPEED_HEADING_KMH) / (HIGH_SPEED_HEADING_KMH - LOW_SPEED_HEADING_KMH);
         sourceHeading = lerpAngle(compassHeading, gpsCourse, clamp(t, 0, 1));
       }
 
-      const nextHeading = smoothHeading(smoothedHeadingRef.current, sourceHeading, HEADING_ALPHA);
+      const nextHeading = smoothHeading(smoothedHeadingRef.current, sourceHeading, alphaHeading);
       smoothedHeadingRef.current = nextHeading;
       setWorldHeading(nextHeading);
     };
@@ -124,7 +172,8 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
         }
 
         compassHeadingRef.current = normalizeHeading(nextHeading);
-        updateHeadingState(speedKmhRef.current);
+        const { alphaHeading } = getDynamicAlphas(navigationModeRef.current);
+        updateHeadingState(speedKmhRef.current, alphaHeading);
       });
 
       const initialLocation = await Location.getCurrentPositionAsync({
@@ -173,6 +222,14 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           }
 
           const nextSpeedKmh = sanitizeSpeedKmh(location.coords.speed);
+          const nextNavigationMode = getNavigationMode(nextSpeedKmh);
+          if (navigationModeRef.current !== nextNavigationMode) {
+            navigationModeRef.current = nextNavigationMode;
+            setNavigationMode(nextNavigationMode);
+          }
+
+          const { alphaHeading, alphaPosition: dynamicAlphaPosition } = getDynamicAlphas(nextNavigationMode);
+
           const previousMotionMode = motionModeRef.current;
           const nextMotionMode: MotionMode =
             previousMotionMode === "moving"
@@ -197,7 +254,7 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           speedKmhRef.current = nextSpeedKmh;
           setSpeedKmh(nextSpeedKmh);
           setAccuracy(location.coords.accuracy ?? null);
-          updateHeadingState(nextSpeedKmh);
+          updateHeadingState(nextSpeedKmh, alphaHeading);
 
           const rawAccuracy = location.coords.accuracy;
           if (rawAccuracy !== null && Number.isFinite(rawAccuracy) && rawAccuracy > MAX_ACCEPTED_ACCURACY_METERS) {
@@ -209,16 +266,42 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           if (!hasInitialFixRef.current) {
             hasInitialFixRef.current = true;
             filteredCoordinateRef.current = rawCoordinate;
+            kalmanStateRef.current = updateKalmanPosition(null, {
+              lat: rawCoordinate.latitude,
+              lng: rawCoordinate.longitude,
+              accuracy: rawAccuracy ?? null,
+              timestampMs: location.timestamp,
+            });
             setCoordinate(rawCoordinate);
             return;
           }
 
-          const alphaPosition = clamp(nextSpeedKmh / 40, 0.1, 0.6);
+          const previousKalmanTimestamp = kalmanStateRef.current?.lastTimestampMs ?? location.timestamp;
+          const kalmanNext = updateKalmanPosition(kalmanStateRef.current, {
+            lat: rawCoordinate.latitude,
+            lng: rawCoordinate.longitude,
+            accuracy: rawAccuracy ?? null,
+            timestampMs: location.timestamp,
+          });
+          kalmanStateRef.current = kalmanNext;
+
+          const alphaPosition = clamp(dynamicAlphaPosition, 0.1, 0.6);
           const previousCoordinate = filteredCoordinateRef.current;
-          const filteredCoordinate = {
-            latitude: previousCoordinate.latitude + alphaPosition * (rawCoordinate.latitude - previousCoordinate.latitude),
-            longitude: previousCoordinate.longitude + alphaPosition * (rawCoordinate.longitude - previousCoordinate.longitude),
+          let filteredCoordinate = {
+            latitude: previousCoordinate.latitude + alphaPosition * (kalmanNext.lat - previousCoordinate.latitude),
+            longitude: previousCoordinate.longitude + alphaPosition * (kalmanNext.lng - previousCoordinate.longitude),
           };
+
+          if (nextSpeedKmh > 15) {
+            const deltaTimeSeconds = Math.max(
+              0.05,
+              Math.min(2, (location.timestamp - previousKalmanTimestamp) / 1000)
+            );
+            filteredCoordinate = {
+              latitude: filteredCoordinate.latitude + kalmanNext.velocityLat * deltaTimeSeconds,
+              longitude: filteredCoordinate.longitude + kalmanNext.velocityLng * deltaTimeSeconds,
+            };
+          }
 
           filteredCoordinateRef.current = filteredCoordinate;
           setCoordinate(filteredCoordinate);
@@ -247,12 +330,13 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
       coordinate,
       speedKmh,
       motionMode,
+      navigationMode,
       worldHeading,
       cameraHeading,
       markerHeadingRelative,
       accuracy,
     };
-  }, [accuracy, coordinate, followUser, motionMode, speedKmh, worldHeading]);
+  }, [accuracy, coordinate, followUser, motionMode, navigationMode, speedKmh, worldHeading]);
 
   return navigationState;
 }

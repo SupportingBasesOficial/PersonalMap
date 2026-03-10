@@ -23,15 +23,26 @@ function approximateDistanceMeters(
 const HEADING_UPDATE_THRESHOLD = 2;
 const MOVEMENT_UPDATE_THRESHOLD_METERS = 0.8;
 
+function getCameraDuration(mode: "stationary" | "walking" | "cycling" | "driving") {
+  if (mode === "driving") {
+    return 90;
+  }
+
+  if (mode === "walking") {
+    return 160;
+  }
+
+  if (mode === "stationary") {
+    return 220;
+  }
+
+  return 130;
+}
+
 export default function MapScreen() {
   const [followUser, setFollowUser] = useState(true);
   const nav = useNavigationState({ followUser });
-  const [camera, setCamera] = useState({
-    center: nav.coordinate,
-    heading: nav.cameraHeading,
-    zoom: 18,
-    pitch: 0,
-  });
+  const mapRef = useRef<MapView | null>(null);
   const lastCameraCenterRef = useRef(nav.coordinate);
   const lastCameraHeadingRef = useRef(nav.cameraHeading);
 
@@ -52,32 +63,44 @@ export default function MapScreen() {
     lastCameraCenterRef.current = nav.coordinate;
     lastCameraHeadingRef.current = nav.cameraHeading;
 
-    setCamera({
-      center: nav.coordinate,
-      heading: nav.cameraHeading,
-      zoom: 18,
-      pitch: 0,
-    });
-  }, [followUser, nav.cameraHeading, nav.coordinate]);
+    mapRef.current?.animateCamera(
+      {
+        center: nav.coordinate,
+        heading: nav.cameraHeading,
+        zoom: 18,
+        pitch: 0,
+      },
+      { duration: getCameraDuration(nav.navigationMode) }
+    );
+  }, [followUser, nav.cameraHeading, nav.coordinate, nav.navigationMode]);
 
   const handleRecenter = () => {
     setFollowUser(true);
     lastCameraCenterRef.current = nav.coordinate;
     lastCameraHeadingRef.current = nav.cameraHeading;
-    setCamera({
-      center: nav.coordinate,
-      heading: nav.cameraHeading,
-      zoom: 18,
-      pitch: 0,
-    });
+    mapRef.current?.animateCamera(
+      {
+        center: nav.coordinate,
+        heading: nav.cameraHeading,
+        zoom: 18,
+        pitch: 0,
+      },
+      { duration: getCameraDuration(nav.navigationMode) }
+    );
   };
 
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
         onPanDrag={() => setFollowUser(false)}
-        camera={camera}
+        initialCamera={{
+          center: nav.coordinate,
+          heading: nav.cameraHeading,
+          zoom: 18,
+          pitch: 0,
+        }}
       >
         <Marker
           coordinate={nav.coordinate}
