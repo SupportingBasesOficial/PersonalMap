@@ -1,18 +1,19 @@
 import React, { useEffect, useRef, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
-import MapView, { Marker } from "react-native-maps";
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
+import MapView, { Marker, type LatLng } from "react-native-maps";
 import { MaterialIcons } from "@expo/vector-icons";
 import DirectionCone from "../components/DirectionCone";
-import { useNavigationState } from "../hooks/useNavigationState";
+import UserDot from "../components/UserDot";
+import { useUserLocation } from "../hooks/useUserLocation";
 
-function angleDelta(from: number, to: number) {
-  return ((to - from + 540) % 360) - 180;
-}
+const DEFAULT_COORDINATE: LatLng = {
+  latitude: -23.55052,
+  longitude: -46.633308,
+};
 
-function approximateDistanceMeters(
-  a: { latitude: number; longitude: number },
-  b: { latitude: number; longitude: number }
-) {
+const MIN_CAMERA_MOVE_METERS = 1;
+
+function approximateDistanceMeters(a: LatLng, b: LatLng) {
   const metersPerDegreeLat = 111_320;
   const metersPerDegreeLng = 111_320 * Math.cos(((a.latitude + b.latitude) / 2) * (Math.PI / 180));
   const dLat = (a.latitude - b.latitude) * metersPerDegreeLat;
@@ -20,74 +21,80 @@ function approximateDistanceMeters(
   return Math.sqrt(dLat * dLat + dLng * dLng);
 }
 
-const HEADING_UPDATE_THRESHOLD = 2;
-const MOVEMENT_UPDATE_THRESHOLD_METERS = 0.8;
-
-function getCameraDuration(mode: "stationary" | "walking" | "cycling" | "driving") {
-  if (mode === "driving") {
-    return 90;
-  }
-
-  if (mode === "walking") {
-    return 160;
-  }
-
-  if (mode === "stationary") {
-    return 220;
-  }
-
-  return 130;
-}
-
 export default function MapScreen() {
+  const location = useUserLocation();
   const [followUser, setFollowUser] = useState(true);
-  const nav = useNavigationState({ followUser });
   const mapRef = useRef<MapView | null>(null);
-  const lastCameraCenterRef = useRef(nav.coordinate);
-  const lastCameraHeadingRef = useRef(nav.cameraHeading);
+  const lastCameraCenterRef = useRef<LatLng>(DEFAULT_COORDINATE);
 
   useEffect(() => {
-    if (!followUser) {
+    if (!followUser || location.status !== "ready" || !location.coordinate) {
       return;
     }
 
-    const movedMeters = approximateDistanceMeters(nav.coordinate, lastCameraCenterRef.current);
-    const headingDiff = Math.abs(angleDelta(lastCameraHeadingRef.current, nav.cameraHeading));
-    const shouldUpdateCamera =
-      movedMeters > MOVEMENT_UPDATE_THRESHOLD_METERS || headingDiff > HEADING_UPDATE_THRESHOLD;
-
-    if (!shouldUpdateCamera) {
+    const movedMeters = approximateDistanceMeters(location.coordinate, lastCameraCenterRef.current);
+    if (movedMeters < MIN_CAMERA_MOVE_METERS) {
       return;
     }
 
-    lastCameraCenterRef.current = nav.coordinate;
-    lastCameraHeadingRef.current = nav.cameraHeading;
-
+    lastCameraCenterRef.current = location.coordinate;
     mapRef.current?.animateCamera(
       {
-        center: nav.coordinate,
-        heading: nav.cameraHeading,
-        zoom: 18,
+        center: location.coordinate,
+        heading: 0,
         pitch: 0,
+        zoom: 18,
       },
-      { duration: getCameraDuration(nav.navigationMode) }
+      { duration: 180 }
     );
-  }, [followUser, nav.cameraHeading, nav.coordinate, nav.navigationMode]);
+  }, [followUser, location.coordinate, location.status]);
 
   const handleRecenter = () => {
+    if (location.status !== "ready" || !location.coordinate) {
+      return;
+    }
+
     setFollowUser(true);
-    lastCameraCenterRef.current = nav.coordinate;
-    lastCameraHeadingRef.current = nav.cameraHeading;
+    lastCameraCenterRef.current = location.coordinate;
     mapRef.current?.animateCamera(
       {
-        center: nav.coordinate,
-        heading: nav.cameraHeading,
-        zoom: 18,
+        center: location.coordinate,
+        heading: 0,
         pitch: 0,
+        zoom: 18,
       },
-      { duration: getCameraDuration(nav.navigationMode) }
+      { duration: 220 }
     );
   };
+
+  if (location.status === "loading") {
+    return (
+      <View style={styles.centeredState}>
+        <ActivityIndicator size="large" color="#2563EB" />
+        <Text style={styles.stateText}>Carregando localizacao...</Text>
+      </View>
+    );
+  }
+
+  if (location.status === "permission-denied") {
+    return (
+      <View style={styles.centeredState}>
+        <Text style={styles.stateTitle}>Permissao de localizacao negada</Text>
+        <Text style={styles.stateText}>Ative a permissao para usar o mapa e o recentro automatico.</Text>
+      </View>
+    );
+  }
+
+  if (location.status === "error") {
+    return (
+      <View style={styles.centeredState}>
+        <Text style={styles.stateTitle}>Nao foi possivel iniciar a localizacao</Text>
+        <Text style={styles.stateText}>{location.errorMessage ?? "Tente novamente em instantes."}</Text>
+      </View>
+    );
+  }
+
+  const coordinate = location.coordinate ?? DEFAULT_COORDINATE;
 
   return (
     <View style={styles.container}>
@@ -96,29 +103,28 @@ export default function MapScreen() {
         style={styles.map}
         onPanDrag={() => setFollowUser(false)}
         initialCamera={{
-          center: nav.coordinate,
-          heading: nav.cameraHeading,
-          zoom: 18,
+          center: coordinate,
+          heading: 0,
           pitch: 0,
+          zoom: 18,
         }}
       >
         <Marker
-          coordinate={nav.coordinate}
-          rotation={nav.markerHeadingRelative}
+          coordinate={coordinate}
           anchor={{ x: 0.5, y: 0.5 }}
           centerOffset={{ x: 0, y: 0 }}
           tracksViewChanges={false}
-          flat
         >
           <View style={styles.markerWrapper}>
-            <DirectionCone heading={0} />
-
-            <View style={styles.userDotOuter}>
-              <View style={styles.userDotInner} />
-            </View>
+            <DirectionCone heading={location.heading} />
+            <UserDot />
           </View>
         </Marker>
       </MapView>
+
+      <View style={styles.speedBadge}>
+        <Text style={styles.speedText}>{Math.round(location.speedKmh)} km/h</Text>
+      </View>
 
       <Pressable
         style={[styles.recenterButton, followUser ? styles.recenterButtonActive : null]}
@@ -126,6 +132,16 @@ export default function MapScreen() {
       >
         <MaterialIcons name="my-location" size={24} color={followUser ? "#FFFFFF" : "#1B4332"} />
       </Pressable>
+
+      {/*
+        Fase 2 inicial:
+        - heading simples de bussola
+        - cone visual sem logica hibrida
+
+        Mantido fora por enquanto:
+        - sem navegacao hibrida
+        - sem Kalman/predicao
+      */}
     </View>
   );
 }
@@ -136,6 +152,47 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  centeredState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 24,
+    backgroundColor: "#F8FAFC",
+  },
+  stateTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0F172A",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  stateText: {
+    marginTop: 10,
+    fontSize: 15,
+    color: "#334155",
+    textAlign: "center",
+  },
+  speedBadge: {
+    position: "absolute",
+    left: 16,
+    top: 48,
+    backgroundColor: "rgba(15, 23, 42, 0.8)",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  speedText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  markerWrapper: {
+    width: 64,
+    height: 64,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
   },
   recenterButton: {
     position: "absolute",
@@ -155,29 +212,5 @@ const styles = StyleSheet.create({
   },
   recenterButtonActive: {
     backgroundColor: "#1B4332",
-  },
-  markerWrapper: {
-    width: 64,
-    height: 64,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "visible",
-  },
-  userDotOuter: {
-    position: "absolute",
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 3,
-    borderColor: "#2563EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  userDotInner: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#2563EB",
   },
 });

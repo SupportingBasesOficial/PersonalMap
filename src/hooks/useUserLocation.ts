@@ -1,0 +1,180 @@
+import { useEffect, useState } from "react";
+import * as Location from "expo-location";
+
+export type UserLocationState = {
+  status: "loading" | "ready" | "permission-denied" | "error";
+  coordinate: { latitude: number; longitude: number } | null;
+  accuracy: number | null;
+  speedKmh: number;
+  heading: number;
+  errorMessage?: string;
+};
+
+const MAX_ACCEPTED_ACCURACY_METERS = 50;
+
+function normalizeHeading(value: number) {
+  const normalized = value % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+}
+
+function sanitizeSpeedKmh(speedMps: number | null) {
+  if (speedMps === null || !Number.isFinite(speedMps)) {
+    return 0;
+  }
+
+  return Math.max(0, speedMps * 3.6);
+}
+
+export function useUserLocation(): UserLocationState {
+  const [state, setState] = useState<UserLocationState>({
+    status: "loading",
+    coordinate: null,
+    accuracy: null,
+    speedKmh: 0,
+    heading: 0,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    let positionSubscription: Location.LocationSubscription | null = null;
+    let headingSubscription: Location.LocationSubscription | null = null;
+
+    const start = async () => {
+      try {
+        const { status } = await Location.requestForegroundPermissionsAsync();
+
+        if (cancelled) {
+          return;
+        }
+
+        if (status !== "granted") {
+          setState({
+            status: "permission-denied",
+            coordinate: null,
+            accuracy: null,
+            speedKmh: 0,
+            heading: 0,
+            errorMessage: "Permissao de localizacao negada.",
+          });
+          return;
+        }
+
+        headingSubscription = await Location.watchHeadingAsync((headingData) => {
+          if (cancelled) {
+            return;
+          }
+
+          const nextHeading = headingData.trueHeading >= 0 ? headingData.trueHeading : headingData.magHeading;
+          if (!Number.isFinite(nextHeading)) {
+            return;
+          }
+
+          setState((previous) => ({
+            ...previous,
+            heading: normalizeHeading(nextHeading),
+          }));
+        });
+
+        const bootstrap = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.Balanced,
+        }).catch(() => null);
+
+        if (!cancelled && bootstrap) {
+          const bootstrapAccuracy = bootstrap.coords.accuracy ?? null;
+          const bootstrapCoordinate = {
+            latitude: bootstrap.coords.latitude,
+            longitude: bootstrap.coords.longitude,
+          };
+
+          const validCoordinate =
+            Number.isFinite(bootstrapCoordinate.latitude) &&
+            Number.isFinite(bootstrapCoordinate.longitude) &&
+            Math.abs(bootstrapCoordinate.latitude) <= 90 &&
+            Math.abs(bootstrapCoordinate.longitude) <= 180;
+
+          const acceptedAccuracy =
+            bootstrapAccuracy === null ||
+            (Number.isFinite(bootstrapAccuracy) && bootstrapAccuracy <= MAX_ACCEPTED_ACCURACY_METERS);
+
+          if (validCoordinate && acceptedAccuracy) {
+            setState((previous) => ({
+              ...previous,
+              status: "ready",
+              coordinate: bootstrapCoordinate,
+              accuracy: bootstrapAccuracy,
+              speedKmh: sanitizeSpeedKmh(bootstrap.coords.speed),
+            }));
+          }
+        }
+
+        positionSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            timeInterval: 1000,
+            distanceInterval: 1,
+          },
+          (location) => {
+            if (cancelled) {
+              return;
+            }
+
+            const nextAccuracy = location.coords.accuracy ?? null;
+            if (nextAccuracy !== null && Number.isFinite(nextAccuracy) && nextAccuracy > MAX_ACCEPTED_ACCURACY_METERS) {
+              return;
+            }
+
+            const nextCoordinate = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            };
+
+            const validCoordinate =
+              Number.isFinite(nextCoordinate.latitude) &&
+              Number.isFinite(nextCoordinate.longitude) &&
+              Math.abs(nextCoordinate.latitude) <= 90 &&
+              Math.abs(nextCoordinate.longitude) <= 180;
+
+            if (!validCoordinate) {
+              return;
+            }
+
+            setState((previous) => ({
+              ...previous,
+              status: "ready",
+              coordinate: nextCoordinate,
+              accuracy: nextAccuracy,
+              speedKmh: sanitizeSpeedKmh(location.coords.speed),
+            }));
+          }
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
+        }
+
+        setState({
+          status: "error",
+          coordinate: null,
+          accuracy: null,
+          speedKmh: 0,
+          heading: 0,
+          errorMessage: error instanceof Error ? error.message : "Erro ao obter localizacao.",
+        });
+      }
+    };
+
+    start();
+
+    return () => {
+      cancelled = true;
+      if (positionSubscription) {
+        positionSubscription.remove();
+      }
+      if (headingSubscription) {
+        headingSubscription.remove();
+      }
+    };
+  }, []);
+
+  return state;
+}
