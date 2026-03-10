@@ -7,10 +7,12 @@ type Props = {
 };
 
 export default function DirectionCone({ heading }: Props) {
+    const normalized = ((heading % 360) + 360) % 360;
+
     return (
         <View pointerEvents="none" style={styles.container}>
             <Svg width={64} height={64} viewBox="0 0 64 64">
-                <G transform={`rotate(${heading} 32 32)`}>
+                <G transform={`rotate(${normalized} 32 32)`}>
                     <Path d="M32 8 L24 32 L40 32 Z" fill="rgba(37,99,235,0.4)" />
                 </G>
             </Svg>
