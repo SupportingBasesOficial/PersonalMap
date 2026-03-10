@@ -15,7 +15,7 @@ export type NavigationState = {
 };
 
 type UseNavigationStateParams = {
-  followUser: boolean;
+  followUser?: boolean;
 };
 
 const DEFAULT_COORDINATE: LatLng = {
@@ -65,7 +65,8 @@ function sanitizeSpeedKmh(speedMps: number | null) {
   return Math.max(0, speedMps * 3.6);
 }
 
-export function useNavigationState({ followUser }: UseNavigationStateParams): NavigationState {
+export function useNavigationState(params: UseNavigationStateParams = {}): NavigationState {
+  const followUser = params.followUser ?? true;
   const [coordinate, setCoordinate] = useState<LatLng>(DEFAULT_COORDINATE);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [motionMode, setMotionMode] = useState<MotionMode>("stationary");
@@ -78,7 +79,14 @@ export function useNavigationState({ followUser }: UseNavigationStateParams): Na
   const compassHeadingRef = useRef(0);
   const gpsCourseRef = useRef<number | null>(null);
   const speedKmhRef = useRef(0);
+  const lockedCameraHeadingRef = useRef(0);
   const hasInitialFixRef = useRef(false);
+
+  useEffect(() => {
+    if (followUser) {
+      lockedCameraHeadingRef.current = worldHeading;
+    }
+  }, [followUser, worldHeading]);
 
   useEffect(() => {
     let positionSubscription: Location.LocationSubscription | null = null;
@@ -232,8 +240,8 @@ export function useNavigationState({ followUser }: UseNavigationStateParams): Na
   }, []);
 
   const navigationState = useMemo<NavigationState>(() => {
-    const cameraHeading = followUser ? worldHeading : 0;
-    const markerHeadingRelative = normalizeHeading(worldHeading - cameraHeading);
+    const cameraHeading = followUser ? worldHeading : lockedCameraHeadingRef.current;
+    const markerHeadingRelative = followUser ? 0 : normalizeHeading(worldHeading - cameraHeading);
 
     return {
       coordinate,

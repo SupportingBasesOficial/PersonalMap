@@ -1,15 +1,18 @@
 import React from "react";
 import { StyleSheet, View } from "react-native";
-import Svg, { Polygon } from "react-native-svg";
+import Svg, { G, Path } from "react-native-svg";
 
-export default function DirectionCone() {
+type Props = {
+    heading?: number;
+};
+
+export default function DirectionCone({ heading = 0 }: Props) {
     return (
         <View pointerEvents="none" style={styles.container}>
             <Svg width={64} height={64} viewBox="0 0 64 64">
-                <Polygon
-                    points="32 32 24 8 40 8"
-                    fill="rgba(37,99,235,0.35)"
-                />
+                <G transform={`rotate(${heading} 32 32)`}>
+                    <Path d="M32 8 L24 32 L40 32 Z" fill="rgba(37,99,235,0.35)" />
+                </G>
             </Svg>
         </View>
     );
