@@ -3,15 +3,15 @@ import { StyleSheet, View } from "react-native";
 import Svg, { G, Path } from "react-native-svg";
 
 type Props = {
-    heading?: number;
+    heading: number;
 };
 
-export default function DirectionCone({ heading = 0 }: Props) {
+export default function DirectionCone({ heading }: Props) {
     return (
         <View pointerEvents="none" style={styles.container}>
             <Svg width={64} height={64} viewBox="0 0 64 64">
                 <G transform={`rotate(${heading} 32 32)`}>
-                    <Path d="M32 8 L24 32 L40 32 Z" fill="rgba(37,99,235,0.35)" />
+                    <Path d="M32 8 L24 32 L40 32 Z" fill="rgba(37,99,235,0.4)" />
                 </G>
             </Svg>
         </View>
@@ -25,7 +25,5 @@ const styles = StyleSheet.create({
         height: 64,
         alignItems: "center",
         justifyContent: "center",
-        zIndex: 2,
-        elevation: 2,
     },
 });
