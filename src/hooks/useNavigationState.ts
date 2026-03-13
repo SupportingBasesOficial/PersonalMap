@@ -34,7 +34,8 @@ const START_MOVING_SPEED_KMH = 6;
 const STOP_MOVING_SPEED_KMH = 2;
 const LOW_SPEED_HEADING_KMH = 4;
 const HIGH_SPEED_HEADING_KMH = 12;
-const MAX_ACCEPTED_ACCURACY_METERS = 30;
+const MAX_PREFERRED_ACCURACY_METERS = 50;
+const MAX_INITIAL_FIX_ACCURACY_METERS = 120;
 const DRIFT_ALIGNMENT_THRESHOLD_DEGREES = 25;
 
 function isValidCoordinate(coordinate: LatLng) {
@@ -110,7 +111,7 @@ function getDynamicAlphas(mode: NavigationMode) {
     return { alphaHeading: 0.15, alphaPosition: 0.6 };
   }
 
-  return { alphaHeading: 0.25, alphaPosition: 0.2 };
+  return { alphaHeading: 0.45, alphaPosition: 0.2 };
 }
 
 export function useNavigationState(params: UseNavigationStateParams = {}): NavigationState {
@@ -220,7 +221,7 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           const initialAccuracy = initialLocation.coords.accuracy ?? null;
           const initialAcceptedAccuracy =
             initialAccuracy === null ||
-            (Number.isFinite(initialAccuracy) && initialAccuracy <= MAX_ACCEPTED_ACCURACY_METERS);
+            (Number.isFinite(initialAccuracy) && initialAccuracy <= MAX_INITIAL_FIX_ACCURACY_METERS);
 
           if (isValidCoordinate(initialCoordinate) && initialAcceptedAccuracy) {
             filteredCoordinateRef.current = initialCoordinate;
@@ -291,7 +292,19 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
             updateHeadingState(nextSpeedKmh, alphaHeading);
 
             const rawAccuracy = location.coords.accuracy;
-            if (rawAccuracy !== null && Number.isFinite(rawAccuracy) && rawAccuracy > MAX_ACCEPTED_ACCURACY_METERS) {
+            const hasPreferredAccuracy =
+              rawAccuracy === null ||
+              (Number.isFinite(rawAccuracy) && rawAccuracy <= MAX_PREFERRED_ACCURACY_METERS);
+
+            const hasAcceptableInitialAccuracy =
+              rawAccuracy === null ||
+              (Number.isFinite(rawAccuracy) && rawAccuracy <= MAX_INITIAL_FIX_ACCURACY_METERS);
+
+            if (!hasInitialFixRef.current && !hasAcceptableInitialAccuracy) {
+              return;
+            }
+
+            if (hasInitialFixRef.current && !hasPreferredAccuracy) {
               return;
             }
 

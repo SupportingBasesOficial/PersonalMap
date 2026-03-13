@@ -15,7 +15,7 @@ const DEFAULT_COORDINATE: LatLng = {
 };
 
 const MIN_CAMERA_MOVE_METERS = 1;
-const MIN_CAMERA_HEADING_DELTA_DEGREES = 3;
+const MIN_CAMERA_HEADING_DELTA_DEGREES = 1;
 
 function approximateDistanceMeters(a: LatLng, b: LatLng) {
   const metersPerDegreeLat = 111_320;
@@ -57,7 +57,7 @@ export function useFollowCamera(params: Params) {
         pitch: 0,
         zoom: 18,
       },
-      { duration: 180 }
+      { duration: 120 }
     );
   }, [coordinate, followUser, status, worldHeading]);
 
