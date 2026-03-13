@@ -5,13 +5,17 @@ import { updateKalmanPosition, type KalmanState } from "../utils/kalmanFilter";
 
 export type MotionMode = "stationary" | "moving";
 export type NavigationMode = "stationary" | "walking" | "cycling" | "driving";
+export type HeadingSource = "compass" | "gps-course" | "blended";
 
 export type NavigationState = {
-  coordinate: { latitude: number; longitude: number };
+  status: "loading" | "ready" | "permission-denied" | "error";
+  coordinate: { latitude: number; longitude: number } | null;
+  errorMessage?: string;
   speedKmh: number;
   motionMode: MotionMode;
   navigationMode: NavigationMode;
   worldHeading: number;
+  headingSource: HeadingSource;
   cameraHeading: number;
   markerHeadingRelative: number;
   accuracy: number | null;
@@ -32,6 +36,15 @@ const LOW_SPEED_HEADING_KMH = 4;
 const HIGH_SPEED_HEADING_KMH = 12;
 const MAX_ACCEPTED_ACCURACY_METERS = 30;
 const DRIFT_ALIGNMENT_THRESHOLD_DEGREES = 25;
+
+function isValidCoordinate(coordinate: LatLng) {
+  return (
+    Number.isFinite(coordinate.latitude) &&
+    Number.isFinite(coordinate.longitude) &&
+    Math.abs(coordinate.latitude) <= 90 &&
+    Math.abs(coordinate.longitude) <= 180
+  );
+}
 
 function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));
@@ -102,12 +115,15 @@ function getDynamicAlphas(mode: NavigationMode) {
 
 export function useNavigationState(params: UseNavigationStateParams = {}): NavigationState {
   const followUser = params.followUser ?? true;
-  const [coordinate, setCoordinate] = useState<LatLng>(DEFAULT_COORDINATE);
+  const [status, setStatus] = useState<NavigationState["status"]>("loading");
+  const [coordinate, setCoordinate] = useState<LatLng | null>(null);
   const [speedKmh, setSpeedKmh] = useState(0);
   const [motionMode, setMotionMode] = useState<MotionMode>("stationary");
   const [navigationMode, setNavigationMode] = useState<NavigationMode>("stationary");
   const [worldHeading, setWorldHeading] = useState(0);
   const [accuracy, setAccuracy] = useState<number | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+  const [headingSource, setHeadingSource] = useState<HeadingSource>("compass");
 
   const motionModeRef = useRef<MotionMode>("stationary");
   const filteredCoordinateRef = useRef<LatLng>(DEFAULT_COORDINATE);
@@ -144,169 +160,195 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
       }
 
       let sourceHeading = compassHeading;
+      let nextHeadingSource: HeadingSource = "compass";
 
       if (effectiveSpeedKmh < 2) {
         sourceHeading = compassHeading;
       } else if (effectiveSpeedKmh > HIGH_SPEED_HEADING_KMH && gpsCourse !== null) {
         sourceHeading = gpsCourse;
+        nextHeadingSource = "gps-course";
       } else if (effectiveSpeedKmh >= LOW_SPEED_HEADING_KMH && gpsCourse !== null) {
         const t = (effectiveSpeedKmh - LOW_SPEED_HEADING_KMH) / (HIGH_SPEED_HEADING_KMH - LOW_SPEED_HEADING_KMH);
         sourceHeading = lerpAngle(compassHeading, gpsCourse, clamp(t, 0, 1));
+        nextHeadingSource = "blended";
       }
 
       const nextHeading = smoothHeading(smoothedHeadingRef.current, sourceHeading, alphaHeading);
       smoothedHeadingRef.current = nextHeading;
       setWorldHeading(nextHeading);
+      setHeadingSource(nextHeadingSource);
     };
 
     const start = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== "granted" || cancelled) {
-        return;
-      }
-
-      headingSubscription = await Location.watchHeadingAsync((headingData) => {
-        const nextHeading = headingData.trueHeading >= 0 ? headingData.trueHeading : headingData.magHeading;
-        if (!Number.isFinite(nextHeading)) {
+      try {
+        const permissionResponse = await Location.requestForegroundPermissionsAsync();
+        if (cancelled) {
           return;
         }
 
-        compassHeadingRef.current = normalizeHeading(nextHeading);
-        const { alphaHeading } = getDynamicAlphas(navigationModeRef.current);
-        updateHeadingState(speedKmhRef.current, alphaHeading);
-      });
+        if (permissionResponse.status !== "granted") {
+          setStatus("permission-denied");
+          setErrorMessage("Permissao de localizacao negada.");
+          return;
+        }
 
-      const initialLocation = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
-      }).catch(() => null);
+        headingSubscription = await Location.watchHeadingAsync((headingData) => {
+          const nextHeading = headingData.trueHeading >= 0 ? headingData.trueHeading : headingData.magHeading;
+          if (!Number.isFinite(nextHeading)) {
+            return;
+          }
 
-      if (cancelled || !initialLocation) {
-        return;
-      }
+          compassHeadingRef.current = normalizeHeading(nextHeading);
+          const { alphaHeading } = getDynamicAlphas(navigationModeRef.current);
+          updateHeadingState(speedKmhRef.current, alphaHeading);
+        });
 
-      const initialCoordinate = {
-        latitude: initialLocation.coords.latitude,
-        longitude: initialLocation.coords.longitude,
-      };
-
-      const initialValid =
-        Number.isFinite(initialCoordinate.latitude) &&
-        Number.isFinite(initialCoordinate.longitude) &&
-        Math.abs(initialCoordinate.latitude) <= 90 &&
-        Math.abs(initialCoordinate.longitude) <= 180;
-
-      if (initialValid) {
-        filteredCoordinateRef.current = initialCoordinate;
-        hasInitialFixRef.current = true;
-        setCoordinate(initialCoordinate);
-        setAccuracy(initialLocation.coords.accuracy ?? null);
-      }
-
-      positionSubscription = await Location.watchPositionAsync(
-        {
+        const initialLocation = await Location.getCurrentPositionAsync({
           accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 500,
-          distanceInterval: 0.5,
-        },
-        (location) => {
-          const latitude = location.coords.latitude;
-          const longitude = location.coords.longitude;
-          const validPosition =
-            Number.isFinite(latitude) &&
-            Number.isFinite(longitude) &&
-            Math.abs(latitude) <= 90 &&
-            Math.abs(longitude) <= 180;
+        }).catch(() => null);
 
-          if (!validPosition) {
-            return;
-          }
+        if (cancelled) {
+          return;
+        }
 
-          const nextSpeedKmh = sanitizeSpeedKmh(location.coords.speed);
-          const nextNavigationMode = getNavigationMode(nextSpeedKmh);
-          if (navigationModeRef.current !== nextNavigationMode) {
-            navigationModeRef.current = nextNavigationMode;
-            setNavigationMode(nextNavigationMode);
-          }
+        if (initialLocation) {
+          const initialCoordinate = {
+            latitude: initialLocation.coords.latitude,
+            longitude: initialLocation.coords.longitude,
+          };
 
-          const { alphaHeading, alphaPosition: dynamicAlphaPosition } = getDynamicAlphas(nextNavigationMode);
+          const initialAccuracy = initialLocation.coords.accuracy ?? null;
+          const initialAcceptedAccuracy =
+            initialAccuracy === null ||
+            (Number.isFinite(initialAccuracy) && initialAccuracy <= MAX_ACCEPTED_ACCURACY_METERS);
 
-          const previousMotionMode = motionModeRef.current;
-          const nextMotionMode: MotionMode =
-            previousMotionMode === "moving"
-              ? nextSpeedKmh <= STOP_MOVING_SPEED_KMH
-                ? "stationary"
-                : "moving"
-              : nextSpeedKmh >= START_MOVING_SPEED_KMH
-                ? "moving"
-                : "stationary";
-
-          if (nextMotionMode !== previousMotionMode) {
-            motionModeRef.current = nextMotionMode;
-            setMotionMode(nextMotionMode);
-          }
-
-          const gpsHeading = location.coords.heading;
-          gpsCourseRef.current =
-            gpsHeading !== null && Number.isFinite(gpsHeading) && gpsHeading >= 0
-              ? normalizeHeading(gpsHeading)
-              : null;
-
-          speedKmhRef.current = nextSpeedKmh;
-          setSpeedKmh(nextSpeedKmh);
-          setAccuracy(location.coords.accuracy ?? null);
-          updateHeadingState(nextSpeedKmh, alphaHeading);
-
-          const rawAccuracy = location.coords.accuracy;
-          if (rawAccuracy !== null && Number.isFinite(rawAccuracy) && rawAccuracy > MAX_ACCEPTED_ACCURACY_METERS) {
-            return;
-          }
-
-          const rawCoordinate: LatLng = { latitude, longitude };
-
-          if (!hasInitialFixRef.current) {
+          if (isValidCoordinate(initialCoordinate) && initialAcceptedAccuracy) {
+            filteredCoordinateRef.current = initialCoordinate;
             hasInitialFixRef.current = true;
-            filteredCoordinateRef.current = rawCoordinate;
-            kalmanStateRef.current = updateKalmanPosition(null, {
+            speedKmhRef.current = sanitizeSpeedKmh(initialLocation.coords.speed);
+            gpsCourseRef.current =
+              initialLocation.coords.heading !== null &&
+              Number.isFinite(initialLocation.coords.heading) &&
+              initialLocation.coords.heading >= 0
+                ? normalizeHeading(initialLocation.coords.heading)
+                : null;
+            setCoordinate(initialCoordinate);
+            setAccuracy(initialAccuracy);
+            setSpeedKmh(speedKmhRef.current);
+            setStatus("ready");
+          }
+        }
+
+        positionSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.BestForNavigation,
+            timeInterval: 500,
+            distanceInterval: 0.5,
+          },
+          (location) => {
+            const rawCoordinate: LatLng = {
+              latitude: location.coords.latitude,
+              longitude: location.coords.longitude,
+            };
+
+            if (!isValidCoordinate(rawCoordinate)) {
+              return;
+            }
+
+            const nextSpeedKmh = sanitizeSpeedKmh(location.coords.speed);
+            const nextNavigationMode = getNavigationMode(nextSpeedKmh);
+            if (navigationModeRef.current !== nextNavigationMode) {
+              navigationModeRef.current = nextNavigationMode;
+              setNavigationMode(nextNavigationMode);
+            }
+
+            const { alphaHeading, alphaPosition: dynamicAlphaPosition } = getDynamicAlphas(nextNavigationMode);
+
+            const previousMotionMode = motionModeRef.current;
+            const nextMotionMode: MotionMode =
+              previousMotionMode === "moving"
+                ? nextSpeedKmh <= STOP_MOVING_SPEED_KMH
+                  ? "stationary"
+                  : "moving"
+                : nextSpeedKmh >= START_MOVING_SPEED_KMH
+                  ? "moving"
+                  : "stationary";
+
+            if (nextMotionMode !== previousMotionMode) {
+              motionModeRef.current = nextMotionMode;
+              setMotionMode(nextMotionMode);
+            }
+
+            const gpsHeading = location.coords.heading;
+            gpsCourseRef.current =
+              gpsHeading !== null && Number.isFinite(gpsHeading) && gpsHeading >= 0
+                ? normalizeHeading(gpsHeading)
+                : null;
+
+            speedKmhRef.current = nextSpeedKmh;
+            setSpeedKmh(nextSpeedKmh);
+            setAccuracy(location.coords.accuracy ?? null);
+            updateHeadingState(nextSpeedKmh, alphaHeading);
+
+            const rawAccuracy = location.coords.accuracy;
+            if (rawAccuracy !== null && Number.isFinite(rawAccuracy) && rawAccuracy > MAX_ACCEPTED_ACCURACY_METERS) {
+              return;
+            }
+
+            if (!hasInitialFixRef.current) {
+              hasInitialFixRef.current = true;
+              filteredCoordinateRef.current = rawCoordinate;
+              kalmanStateRef.current = updateKalmanPosition(null, {
+                lat: rawCoordinate.latitude,
+                lng: rawCoordinate.longitude,
+                accuracy: rawAccuracy ?? null,
+                timestampMs: location.timestamp,
+              });
+              setCoordinate(rawCoordinate);
+              setStatus("ready");
+              return;
+            }
+
+            const previousKalmanTimestamp = kalmanStateRef.current?.lastTimestampMs ?? location.timestamp;
+            const kalmanNext = updateKalmanPosition(kalmanStateRef.current, {
               lat: rawCoordinate.latitude,
               lng: rawCoordinate.longitude,
               accuracy: rawAccuracy ?? null,
               timestampMs: location.timestamp,
             });
-            setCoordinate(rawCoordinate);
-            return;
-          }
+            kalmanStateRef.current = kalmanNext;
 
-          const previousKalmanTimestamp = kalmanStateRef.current?.lastTimestampMs ?? location.timestamp;
-          const kalmanNext = updateKalmanPosition(kalmanStateRef.current, {
-            lat: rawCoordinate.latitude,
-            lng: rawCoordinate.longitude,
-            accuracy: rawAccuracy ?? null,
-            timestampMs: location.timestamp,
-          });
-          kalmanStateRef.current = kalmanNext;
-
-          const alphaPosition = clamp(dynamicAlphaPosition, 0.1, 0.6);
-          const previousCoordinate = filteredCoordinateRef.current;
-          let filteredCoordinate = {
-            latitude: previousCoordinate.latitude + alphaPosition * (kalmanNext.lat - previousCoordinate.latitude),
-            longitude: previousCoordinate.longitude + alphaPosition * (kalmanNext.lng - previousCoordinate.longitude),
-          };
-
-          if (nextSpeedKmh > 15) {
-            const deltaTimeSeconds = Math.max(
-              0.05,
-              Math.min(2, (location.timestamp - previousKalmanTimestamp) / 1000)
-            );
-            filteredCoordinate = {
-              latitude: filteredCoordinate.latitude + kalmanNext.velocityLat * deltaTimeSeconds,
-              longitude: filteredCoordinate.longitude + kalmanNext.velocityLng * deltaTimeSeconds,
+            const alphaPosition = clamp(dynamicAlphaPosition, 0.1, 0.6);
+            const previousCoordinate = filteredCoordinateRef.current;
+            let filteredCoordinate = {
+              latitude: previousCoordinate.latitude + alphaPosition * (kalmanNext.lat - previousCoordinate.latitude),
+              longitude: previousCoordinate.longitude + alphaPosition * (kalmanNext.lng - previousCoordinate.longitude),
             };
-          }
 
-          filteredCoordinateRef.current = filteredCoordinate;
-          setCoordinate(filteredCoordinate);
+            if (nextSpeedKmh > 15) {
+              const deltaTimeSeconds = Math.max(
+                0.05,
+                Math.min(2, (location.timestamp - previousKalmanTimestamp) / 1000)
+              );
+              filteredCoordinate = {
+                latitude: filteredCoordinate.latitude + kalmanNext.velocityLat * deltaTimeSeconds,
+                longitude: filteredCoordinate.longitude + kalmanNext.velocityLng * deltaTimeSeconds,
+              };
+            }
+
+            filteredCoordinateRef.current = filteredCoordinate;
+            setCoordinate(filteredCoordinate);
+            setStatus("ready");
+          }
+        );
+      } catch (error) {
+        if (cancelled) {
+          return;
         }
-      );
+
+        setStatus("error");
+        setErrorMessage(error instanceof Error ? error.message : "Erro ao obter localizacao.");
+      }
     };
 
     start();
@@ -327,16 +369,19 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
     const markerHeadingRelative = followUser ? 0 : normalizeHeading(worldHeading - cameraHeading);
 
     return {
+      status,
       coordinate,
+      errorMessage,
       speedKmh,
       motionMode,
       navigationMode,
       worldHeading,
+      headingSource,
       cameraHeading,
       markerHeadingRelative,
       accuracy,
     };
-  }, [accuracy, coordinate, followUser, motionMode, navigationMode, speedKmh, worldHeading]);
+  }, [accuracy, coordinate, errorMessage, followUser, headingSource, motionMode, navigationMode, speedKmh, status, worldHeading]);
 
   return navigationState;
 }

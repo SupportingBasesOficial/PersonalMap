@@ -1,81 +1,27 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
-import MapView, { Marker, type LatLng } from "react-native-maps";
+import MapView, { type LatLng } from "react-native-maps";
 import { MaterialIcons } from "@expo/vector-icons";
-import DirectionCone from "../components/DirectionCone";
-import UserDot from "../components/UserDot";
-import { useUserLocation } from "../hooks/useUserLocation";
+import DebugHud from "../components/DebugHud";
+import UserLocationIndicator from "../components/UserLocationIndicator";
+import { useFollowCamera } from "../hooks/useFollowCamera";
+import { useNavigationState } from "../hooks/useNavigationState";
 
 const DEFAULT_COORDINATE: LatLng = {
   latitude: -23.55052,
   longitude: -46.633308,
 };
 
-const MIN_CAMERA_MOVE_METERS = 1;
-const MIN_CAMERA_HEADING_DELTA_DEGREES = 3;
-
-function approximateDistanceMeters(a: LatLng, b: LatLng) {
-  const metersPerDegreeLat = 111_320;
-  const metersPerDegreeLng = 111_320 * Math.cos(((a.latitude + b.latitude) / 2) * (Math.PI / 180));
-  const dLat = (a.latitude - b.latitude) * metersPerDegreeLat;
-  const dLng = (a.longitude - b.longitude) * metersPerDegreeLng;
-  return Math.sqrt(dLat * dLat + dLng * dLng);
-}
-
-function angleDelta(from: number, to: number) {
-  return ((to - from + 540) % 360) - 180;
-}
-
 export default function MapScreen() {
-  const location = useUserLocation();
   const [followUser, setFollowUser] = useState(true);
-  const mapRef = useRef<MapView | null>(null);
-  const lastCameraCenterRef = useRef<LatLng>(DEFAULT_COORDINATE);
-  const lastCameraHeadingRef = useRef(0);
-
-  useEffect(() => {
-    if (!followUser || location.status !== "ready" || !location.coordinate) {
-      return;
-    }
-
-    const movedMeters = approximateDistanceMeters(location.coordinate, lastCameraCenterRef.current);
-    const headingDelta = Math.abs(angleDelta(location.heading, lastCameraHeadingRef.current));
-
-    if (movedMeters < MIN_CAMERA_MOVE_METERS && headingDelta < MIN_CAMERA_HEADING_DELTA_DEGREES) {
-      return;
-    }
-
-    lastCameraCenterRef.current = location.coordinate;
-    lastCameraHeadingRef.current = location.heading;
-    mapRef.current?.animateCamera(
-      {
-        center: location.coordinate,
-        heading: location.heading,
-        pitch: 0,
-        zoom: 18,
-      },
-      { duration: 180 }
-    );
-  }, [followUser, location.coordinate, location.heading, location.status]);
-
-  const handleRecenter = () => {
-    if (location.status !== "ready" || !location.coordinate) {
-      return;
-    }
-
-    setFollowUser(true);
-    lastCameraCenterRef.current = location.coordinate;
-    lastCameraHeadingRef.current = location.heading;
-    mapRef.current?.animateCamera(
-      {
-        center: location.coordinate,
-        heading: location.heading,
-        pitch: 0,
-        zoom: 18,
-      },
-      { duration: 220 }
-    );
-  };
+  const location = useNavigationState({ followUser });
+  const { mapRef, handlePanDrag, handleRecenter } = useFollowCamera({
+    followUser,
+    setFollowUser,
+    coordinate: location.coordinate,
+    worldHeading: location.worldHeading,
+    status: location.status,
+  });
 
   if (location.status === "loading") {
     return (
@@ -111,25 +57,19 @@ export default function MapScreen() {
       <MapView
         ref={mapRef}
         style={styles.map}
-        onPanDrag={() => setFollowUser(false)}
+        onPanDrag={handlePanDrag}
         initialCamera={{
           center: coordinate,
-          heading: location.heading,
+          heading: location.worldHeading,
           pitch: 0,
           zoom: 18,
         }}
       >
-        <Marker
+        <UserLocationIndicator
           coordinate={coordinate}
-          anchor={{ x: 0.5, y: 0.5 }}
-          centerOffset={{ x: 0, y: 0 }}
-          tracksViewChanges={false}
-        >
-          <View style={styles.markerWrapper}>
-            <DirectionCone heading={followUser ? 0 : location.heading} />
-            <UserDot />
-          </View>
-        </Marker>
+          followUser={followUser}
+          heading={location.markerHeadingRelative}
+        />
       </MapView>
 
       <View style={styles.speedBadge}>
@@ -142,6 +82,19 @@ export default function MapScreen() {
       >
         <MaterialIcons name="my-location" size={24} color={followUser ? "#FFFFFF" : "#1B4332"} />
       </Pressable>
+
+      {__DEV__ ? (
+        <DebugHud
+          status={location.status}
+          followUser={followUser}
+          speedKmh={location.speedKmh}
+          accuracy={location.accuracy}
+          navigationMode={location.navigationMode}
+          motionMode={location.motionMode}
+          headingSource={location.headingSource}
+          worldHeading={location.worldHeading}
+        />
+      ) : null}
 
       {/*
         Fase 2 inicial:
@@ -196,13 +149,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
-  },
-  markerWrapper: {
-    width: 64,
-    height: 64,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "visible",
   },
   recenterButton: {
     position: "absolute",
