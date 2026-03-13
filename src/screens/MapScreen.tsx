@@ -94,6 +94,8 @@ export default function MapScreen() {
           motionMode={location.motionMode}
           headingSource={location.headingSource}
           worldHeading={location.worldHeading}
+          tiltDegrees={location.tiltDegrees}
+          headingTiltLocked={location.headingTiltLocked}
         />
       ) : null}
 

@@ -65,9 +65,13 @@ export function useFollowCamera(params: Params) {
       return;
     }
 
+    if (!mapRef.current) {
+      return;
+    }
+
     lastCameraCenterRef.current = coordinate;
     lastCameraHeadingRef.current = targetHeading;
-    mapRef.current?.animateCamera(
+    mapRef.current.animateCamera(
       {
         center: coordinate,
         heading: targetHeading,
@@ -91,7 +95,11 @@ export function useFollowCamera(params: Params) {
     lastCameraCenterRef.current = coordinate;
     lastCameraHeadingRef.current = worldHeading;
 
-    mapRef.current?.animateCamera(
+    if (!mapRef.current) {
+      return;
+    }
+
+    mapRef.current.animateCamera(
       {
         center: coordinate,
         heading: worldHeading,

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as Location from "expo-location";
+import { DeviceMotion } from "expo-sensors";
 import type { LatLng } from "react-native-maps";
 import { updateKalmanPosition, type KalmanState } from "../utils/kalmanFilter";
 
@@ -16,6 +17,8 @@ export type NavigationState = {
   navigationMode: NavigationMode;
   worldHeading: number;
   headingSource: HeadingSource;
+  tiltDegrees: number | null;
+  headingTiltLocked: boolean;
   cameraHeading: number;
   markerHeadingRelative: number;
   accuracy: number | null;
@@ -47,6 +50,19 @@ const STATIONARY_FLIP_CONFIRMATION_TOLERANCE_DEGREES = 15;
 const STATIONARY_FLIP_CONFIRMATION_TIMEOUT_MS = 1200;
 const STATIONARY_MAX_DELTA_PER_SAMPLE_DEGREES = 35;
 const STATIONARY_MAX_DELTA_SAMPLE_WINDOW_MS = 260;
+const STATIONARY_MAX_TILT_DEGREES = 40;
+
+function toDegreesIfNeeded(value: number) {
+  if (!Number.isFinite(value)) {
+    return value;
+  }
+
+  if (Math.abs(value) <= Math.PI * 2.2) {
+    return (value * 180) / Math.PI;
+  }
+
+  return value;
+}
 
 function isValidCoordinate(coordinate: LatLng) {
   return (
@@ -135,6 +151,8 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
   const [accuracy, setAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
   const [headingSource, setHeadingSource] = useState<HeadingSource>("compass");
+  const [tiltDegrees, setTiltDegrees] = useState<number | null>(null);
+  const [headingTiltLocked, setHeadingTiltLocked] = useState(false);
 
   const motionModeRef = useRef<MotionMode>("stationary");
   const filteredCoordinateRef = useRef<LatLng>(DEFAULT_COORDINATE);
@@ -150,6 +168,7 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
   const flipCandidateCountRef = useRef(0);
   const flipCandidateTimestampRef = useRef(0);
   const lastAcceptedCompassTimestampRef = useRef(0);
+  const tiltDegreesRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (followUser) {
@@ -160,6 +179,7 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
   useEffect(() => {
     let positionSubscription: Location.LocationSubscription | null = null;
     let headingSubscription: Location.LocationSubscription | null = null;
+    let motionSubscription: { remove: () => void } | null = null;
     let cancelled = false;
 
     const updateHeadingState = (effectiveSpeedKmh: number, alphaHeading: number) => {
@@ -207,6 +227,20 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           return;
         }
 
+        DeviceMotion.setUpdateInterval(200);
+        motionSubscription = DeviceMotion.addListener((motion) => {
+          const beta = motion.rotation?.beta;
+          if (beta === undefined || beta === null || !Number.isFinite(beta)) {
+            tiltDegreesRef.current = null;
+            setTiltDegrees(null);
+            return;
+          }
+
+          const tilt = Math.abs(toDegreesIfNeeded(beta));
+          tiltDegreesRef.current = tilt;
+          setTiltDegrees(tilt);
+        });
+
         headingSubscription = await Location.watchHeadingAsync((headingData) => {
           const headingAccuracy = headingData.accuracy;
           if (
@@ -227,6 +261,14 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           const deltaDegrees = Math.abs(angleDelta(currentCompass, normalizedHeading));
           const isStationary = navigationModeRef.current === "stationary";
           const now = Date.now();
+          const currentTilt = tiltDegreesRef.current;
+
+          if (isStationary && currentTilt !== null && currentTilt > STATIONARY_MAX_TILT_DEGREES) {
+            setHeadingTiltLocked(true);
+            return;
+          }
+
+          setHeadingTiltLocked(false);
 
           if (
             isStationary &&
@@ -454,6 +496,9 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
       if (headingSubscription) {
         headingSubscription.remove();
       }
+      if (motionSubscription) {
+        motionSubscription.remove();
+      }
     };
   }, []);
 
@@ -470,11 +515,26 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
       navigationMode,
       worldHeading,
       headingSource,
+      tiltDegrees,
+      headingTiltLocked,
       cameraHeading,
       markerHeadingRelative,
       accuracy,
     };
-  }, [accuracy, coordinate, errorMessage, followUser, headingSource, motionMode, navigationMode, speedKmh, status, worldHeading]);
+  }, [
+    accuracy,
+    coordinate,
+    errorMessage,
+    followUser,
+    headingSource,
+    headingTiltLocked,
+    motionMode,
+    navigationMode,
+    speedKmh,
+    status,
+    tiltDegrees,
+    worldHeading,
+  ]);
 
   return navigationState;
 }

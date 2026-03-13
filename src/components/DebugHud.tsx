@@ -10,6 +10,8 @@ type Props = {
   motionMode: string;
   headingSource: string;
   worldHeading: number;
+  tiltDegrees: number | null;
+  headingTiltLocked: boolean;
 };
 
 function formatAccuracy(accuracy: number | null) {
@@ -18,6 +20,14 @@ function formatAccuracy(accuracy: number | null) {
   }
 
   return `${Math.round(accuracy)} m`;
+}
+
+function formatTilt(tiltDegrees: number | null) {
+  if (tiltDegrees === null || !Number.isFinite(tiltDegrees)) {
+    return "n/d";
+  }
+
+  return `${Math.round(tiltDegrees)} deg`;
 }
 
 export default function DebugHud(props: Props) {
@@ -30,6 +40,8 @@ export default function DebugHud(props: Props) {
     motionMode,
     headingSource,
     worldHeading,
+    tiltDegrees,
+    headingTiltLocked,
   } = props;
 
   return (
@@ -42,6 +54,8 @@ export default function DebugHud(props: Props) {
       <Text style={styles.text}>modo movimento: {motionMode}</Text>
       <Text style={styles.text}>fonte heading: {headingSource}</Text>
       <Text style={styles.text}>heading mundo: {Math.round(worldHeading)} deg</Text>
+      <Text style={styles.text}>inclinacao: {formatTilt(tiltDegrees)}</Text>
+      <Text style={styles.text}>tilt lock: {headingTiltLocked ? "on" : "off"}</Text>
     </View>
   );
 }
