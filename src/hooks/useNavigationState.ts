@@ -38,8 +38,15 @@ const MAX_PREFERRED_ACCURACY_METERS = 50;
 const MAX_INITIAL_FIX_ACCURACY_METERS = 120;
 const DRIFT_ALIGNMENT_THRESHOLD_DEGREES = 25;
 const MAX_HEADING_ACCURACY_DEGREES = 30;
-const STATIONARY_COMPASS_NOISE_DEADBAND_DEGREES = 2;
-const STATIONARY_COMPASS_BLEND_ALPHA = 0.22;
+const STATIONARY_HEADING_ACCURACY_MAX_DEGREES = 15;
+const STATIONARY_COMPASS_NOISE_DEADBAND_DEGREES = 4;
+const STATIONARY_COMPASS_BLEND_ALPHA = 0.14;
+const STATIONARY_FLIP_MIN_DELTA_DEGREES = 130;
+const STATIONARY_FLIP_CONFIRMATION_REQUIRED = 5;
+const STATIONARY_FLIP_CONFIRMATION_TOLERANCE_DEGREES = 15;
+const STATIONARY_FLIP_CONFIRMATION_TIMEOUT_MS = 1200;
+const STATIONARY_MAX_DELTA_PER_SAMPLE_DEGREES = 35;
+const STATIONARY_MAX_DELTA_SAMPLE_WINDOW_MS = 260;
 
 function isValidCoordinate(coordinate: LatLng) {
   return (
@@ -139,6 +146,10 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
   const kalmanStateRef = useRef<KalmanState | null>(null);
   const lockedCameraHeadingRef = useRef(0);
   const hasInitialFixRef = useRef(false);
+  const flipCandidateHeadingRef = useRef<number | null>(null);
+  const flipCandidateCountRef = useRef(0);
+  const flipCandidateTimestampRef = useRef(0);
+  const lastAcceptedCompassTimestampRef = useRef(0);
 
   useEffect(() => {
     if (followUser) {
@@ -214,13 +225,61 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
           const normalizedHeading = normalizeHeading(nextHeading);
           const currentCompass = compassHeadingRef.current;
           const deltaDegrees = Math.abs(angleDelta(currentCompass, normalizedHeading));
+          const isStationary = navigationModeRef.current === "stationary";
+          const now = Date.now();
 
-          if (navigationModeRef.current === "stationary" && deltaDegrees < STATIONARY_COMPASS_NOISE_DEADBAND_DEGREES) {
+          if (
+            isStationary &&
+            headingAccuracy !== null &&
+            Number.isFinite(headingAccuracy) &&
+            headingAccuracy > STATIONARY_HEADING_ACCURACY_MAX_DEGREES
+          ) {
             return;
           }
 
-          const blendAlpha = navigationModeRef.current === "stationary" ? STATIONARY_COMPASS_BLEND_ALPHA : 0.45;
+          if (isStationary && deltaDegrees < STATIONARY_COMPASS_NOISE_DEADBAND_DEGREES) {
+            return;
+          }
+
+          if (isStationary && lastAcceptedCompassTimestampRef.current > 0) {
+            const elapsedMs = now - lastAcceptedCompassTimestampRef.current;
+            if (elapsedMs <= STATIONARY_MAX_DELTA_SAMPLE_WINDOW_MS && deltaDegrees > STATIONARY_MAX_DELTA_PER_SAMPLE_DEGREES) {
+              return;
+            }
+          }
+
+          if (isStationary && deltaDegrees >= STATIONARY_FLIP_MIN_DELTA_DEGREES) {
+            const candidate = flipCandidateHeadingRef.current;
+            const isSameCandidate =
+              candidate !== null &&
+              Math.abs(angleDelta(candidate, normalizedHeading)) <= STATIONARY_FLIP_CONFIRMATION_TOLERANCE_DEGREES &&
+              now - flipCandidateTimestampRef.current <= STATIONARY_FLIP_CONFIRMATION_TIMEOUT_MS;
+
+            if (isSameCandidate) {
+              flipCandidateCountRef.current += 1;
+            } else {
+              flipCandidateHeadingRef.current = normalizedHeading;
+              flipCandidateCountRef.current = 1;
+            }
+
+            flipCandidateTimestampRef.current = now;
+
+            if (flipCandidateCountRef.current < STATIONARY_FLIP_CONFIRMATION_REQUIRED) {
+              return;
+            }
+
+            flipCandidateHeadingRef.current = null;
+            flipCandidateCountRef.current = 0;
+            flipCandidateTimestampRef.current = 0;
+          } else {
+            flipCandidateHeadingRef.current = null;
+            flipCandidateCountRef.current = 0;
+            flipCandidateTimestampRef.current = 0;
+          }
+
+          const blendAlpha = isStationary ? STATIONARY_COMPASS_BLEND_ALPHA : 0.45;
           compassHeadingRef.current = lerpAngle(currentCompass, normalizedHeading, blendAlpha);
+          lastAcceptedCompassTimestampRef.current = now;
           const { alphaHeading } = getDynamicAlphas(navigationModeRef.current);
           updateHeadingState(speedKmhRef.current, alphaHeading);
         });

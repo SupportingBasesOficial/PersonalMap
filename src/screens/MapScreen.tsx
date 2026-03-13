@@ -20,6 +20,7 @@ export default function MapScreen() {
     setFollowUser,
     coordinate: location.coordinate,
     worldHeading: location.worldHeading,
+    speedKmh: location.speedKmh,
     status: location.status,
   });
 

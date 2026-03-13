@@ -6,6 +6,7 @@ type Params = {
   setFollowUser: (value: boolean) => void;
   coordinate: LatLng | null;
   worldHeading: number;
+  speedKmh: number;
   status: "loading" | "ready" | "permission-denied" | "error";
 };
 
@@ -16,6 +17,9 @@ const DEFAULT_COORDINATE: LatLng = {
 
 const MIN_CAMERA_MOVE_METERS = 1;
 const MIN_CAMERA_HEADING_DELTA_DEGREES = 1;
+const STATIONARY_SPEED_THRESHOLD_KMH = 1.5;
+const STATIONARY_CAMERA_MIN_HEADING_DELTA_DEGREES = 2;
+const STATIONARY_CAMERA_MAX_STEP_DEGREES = 24;
 
 function approximateDistanceMeters(a: LatLng, b: LatLng) {
   const metersPerDegreeLat = 111_320;
@@ -30,7 +34,7 @@ function angleDelta(from: number, to: number) {
 }
 
 export function useFollowCamera(params: Params) {
-  const { followUser, setFollowUser, coordinate, worldHeading, status } = params;
+  const { followUser, setFollowUser, coordinate, worldHeading, speedKmh, status } = params;
 
   const mapRef = useRef<MapView | null>(null);
   const lastCameraCenterRef = useRef<LatLng>(DEFAULT_COORDINATE);
@@ -42,24 +46,37 @@ export function useFollowCamera(params: Params) {
     }
 
     const movedMeters = approximateDistanceMeters(coordinate, lastCameraCenterRef.current);
-    const headingDelta = Math.abs(angleDelta(worldHeading, lastCameraHeadingRef.current));
+    const isStationary = speedKmh <= STATIONARY_SPEED_THRESHOLD_KMH;
+    let targetHeading = worldHeading;
+    const rawHeadingDelta = Math.abs(angleDelta(worldHeading, lastCameraHeadingRef.current));
 
-    if (movedMeters < MIN_CAMERA_MOVE_METERS && headingDelta < MIN_CAMERA_HEADING_DELTA_DEGREES) {
+    if (isStationary && rawHeadingDelta > STATIONARY_CAMERA_MAX_STEP_DEGREES) {
+      const signedDelta = angleDelta(lastCameraHeadingRef.current, worldHeading);
+      const clampedDelta = Math.sign(signedDelta) * STATIONARY_CAMERA_MAX_STEP_DEGREES;
+      targetHeading = ((lastCameraHeadingRef.current + clampedDelta) % 360 + 360) % 360;
+    }
+
+    const headingDelta = Math.abs(angleDelta(targetHeading, lastCameraHeadingRef.current));
+    const minHeadingDelta = isStationary
+      ? STATIONARY_CAMERA_MIN_HEADING_DELTA_DEGREES
+      : MIN_CAMERA_HEADING_DELTA_DEGREES;
+
+    if (movedMeters < MIN_CAMERA_MOVE_METERS && headingDelta < minHeadingDelta) {
       return;
     }
 
     lastCameraCenterRef.current = coordinate;
-    lastCameraHeadingRef.current = worldHeading;
+    lastCameraHeadingRef.current = targetHeading;
     mapRef.current?.animateCamera(
       {
         center: coordinate,
-        heading: worldHeading,
+        heading: targetHeading,
         pitch: 0,
         zoom: 18,
       },
-      { duration: 120 }
+      { duration: isStationary ? 140 : 120 }
     );
-  }, [coordinate, followUser, status, worldHeading]);
+  }, [coordinate, followUser, speedKmh, status, worldHeading]);
 
   const handlePanDrag = useCallback(() => {
     setFollowUser(false);
