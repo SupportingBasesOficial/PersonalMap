@@ -37,6 +37,9 @@ const HIGH_SPEED_HEADING_KMH = 12;
 const MAX_PREFERRED_ACCURACY_METERS = 50;
 const MAX_INITIAL_FIX_ACCURACY_METERS = 120;
 const DRIFT_ALIGNMENT_THRESHOLD_DEGREES = 25;
+const MAX_HEADING_ACCURACY_DEGREES = 30;
+const STATIONARY_COMPASS_NOISE_DEADBAND_DEGREES = 2;
+const STATIONARY_COMPASS_BLEND_ALPHA = 0.22;
 
 function isValidCoordinate(coordinate: LatLng) {
   return (
@@ -194,12 +197,30 @@ export function useNavigationState(params: UseNavigationStateParams = {}): Navig
         }
 
         headingSubscription = await Location.watchHeadingAsync((headingData) => {
+          const headingAccuracy = headingData.accuracy;
+          if (
+            headingAccuracy !== null &&
+            Number.isFinite(headingAccuracy) &&
+            headingAccuracy > MAX_HEADING_ACCURACY_DEGREES
+          ) {
+            return;
+          }
+
           const nextHeading = headingData.trueHeading >= 0 ? headingData.trueHeading : headingData.magHeading;
           if (!Number.isFinite(nextHeading)) {
             return;
           }
 
-          compassHeadingRef.current = normalizeHeading(nextHeading);
+          const normalizedHeading = normalizeHeading(nextHeading);
+          const currentCompass = compassHeadingRef.current;
+          const deltaDegrees = Math.abs(angleDelta(currentCompass, normalizedHeading));
+
+          if (navigationModeRef.current === "stationary" && deltaDegrees < STATIONARY_COMPASS_NOISE_DEADBAND_DEGREES) {
+            return;
+          }
+
+          const blendAlpha = navigationModeRef.current === "stationary" ? STATIONARY_COMPASS_BLEND_ALPHA : 0.45;
+          compassHeadingRef.current = lerpAngle(currentCompass, normalizedHeading, blendAlpha);
           const { alphaHeading } = getDynamicAlphas(navigationModeRef.current);
           updateHeadingState(speedKmhRef.current, alphaHeading);
         });
